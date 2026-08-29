@@ -14,8 +14,9 @@ import {
   type Basis,
   type View,
 } from "../engine/pano";
-import { bitmapSize, closeBitmap, loadBitmap } from "../imageImport";
+import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
+import { useFeature } from "../features";
 
 interface Props {
   scenes: Scene[]; // весь тур, по порядку
@@ -40,6 +41,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [gyro, setGyro] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [noteHotspot, setNoteHotspot] = useState<Hotspot | null>(null);
+  const [notePhotoUrl, setNotePhotoUrl] = useState<string | null>(null);
+  const richNotes = useFeature("richNotes");
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,6 +74,16 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setToast(text);
     window.setTimeout(() => setToast((t) => (t === text ? null : t)), 2200);
   }, []);
+
+  useEffect(() => {
+    if (!noteHotspot?.photo) {
+      setNotePhotoUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(noteHotspot.photo);
+    setNotePhotoUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [noteHotspot]);
 
   // ── Рендер-цикл ─────────────────────────────────────────────────
   useEffect(() => {
@@ -261,6 +275,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       if (h) activateHotspot(h);
       return;
     }
+    if (noteHotspot && !target?.closest("[data-hud]")) {
+      setNoteHotspot(null);
+      return;
+    }
     if (target?.closest("[data-hud]")) return;
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -383,13 +401,21 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (id === currentId) return;
     setSelectedId(null);
     setPlacing(null);
+    setNoteHotspot(null);
     setCurrentId(id);
   }
 
   function activateHotspot(h: Hotspot) {
     if (edit) { setSelectedId(h.id); return; }
-    if (h.targetId && scenes.some((s) => s.id === h.targetId)) goTo(h.targetId);
-    else flash(h.label);
+    if (h.targetId && scenes.some((s) => s.id === h.targetId)) { goTo(h.targetId); return; }
+    if (richNotes && (h.note?.trim() || h.photo)) { setNoteHotspot(h); return; }
+    flash(h.label);
+  }
+
+  async function pickNotePhoto(hotspotId: string, file: File | undefined) {
+    if (!file) return;
+    const photo = await prepareHotspotPhoto(file);
+    updateHotspot(hotspotId, { photo });
   }
 
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
@@ -464,6 +490,31 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   <option key={s.id} value={s.id}>Перейти: {s.title}</option>
                 ))}
               </select>
+              {richNotes && !selected.targetId && (
+                <>
+                  <textarea
+                    className="pano-input"
+                    rows={3}
+                    placeholder="Описание для карточки (необязательно)"
+                    value={selected.note ?? ""}
+                    onChange={(e) => updateHotspot(selected.id, { note: e.target.value })}
+                  />
+                  <div className="row" style={{ gap: 6 }}>
+                    <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
+                      {selected.photo ? "Заменить фото" : "+ Фото"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => pickNotePhoto(selected.id, e.target.files?.[0])}
+                      />
+                    </label>
+                    {selected.photo && (
+                      <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title="Убрать фото">✕ фото</button>
+                    )}
+                  </div>
+                </>
+              )}
               <div className="row" style={{ gap: 6 }}>
                 <button className={`pano-btn wide${placing === selected.id ? " on" : ""}`} onClick={() => setPlacing(placing === selected.id ? null : selected.id)}>
                   {placing === selected.id ? "Нажми на панораму…" : "Переставить"}
@@ -487,6 +538,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {scenes.map((s) => (
             <button key={s.id} className={`pano-chip${s.id === scene.id ? " on" : ""}`} onClick={() => goTo(s.id)}>{s.title}</button>
           ))}
+        </div>
+      )}
+
+      {noteHotspot && (
+        <div className="pano-note" data-hud onPointerDown={(e) => e.stopPropagation()}>
+          {notePhotoUrl && <img className="pano-note-photo" src={notePhotoUrl} alt="" />}
+          <div className="pano-note-body">
+            <div className="pano-note-title">
+              <span>{noteHotspot.label}</span>
+              <button className="pano-note-close" onClick={() => setNoteHotspot(null)} aria-label="Закрыть">✕</button>
+            </div>
+            {noteHotspot.note && <div className="pano-note-text">{noteHotspot.note}</div>}
+          </div>
         </div>
       )}
 

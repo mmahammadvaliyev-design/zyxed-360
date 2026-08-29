@@ -88,6 +88,7 @@ const pointers = new Map<number, { x: number; y: number }>();
 const drag = { active: false, x: 0, y: 0, moved: 0, pinch: 0 };
 let downTarget: HTMLElement | null = null;
 let loadToken = 0;
+let noteEl: HTMLElement | null = null;
 
 function currentScene(): SceneMeta | undefined {
   return scenes[currentIndex];
@@ -119,6 +120,52 @@ function renderHotspots(scene: SceneMeta) {
   }
 }
 
+function closeNote() {
+  noteEl?.remove();
+  noteEl = null;
+}
+
+// Функция «Богатые заметки»: постоянная карточка с описанием/фото вместо
+// короткого тоста — только если фича была включена на момент экспорта
+// (manifest.features, см. src/export/bundle.ts) и у точки есть что показать.
+function openNote(h: Hotspot) {
+  closeNote();
+  const card = document.createElement("div");
+  card.className = "pano-note";
+  card.dataset.hud = "1";
+  card.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+  if (h.photoUrl) {
+    const img = document.createElement("img");
+    img.className = "pano-note-photo";
+    img.src = h.photoUrl;
+    img.alt = "";
+    card.appendChild(img);
+  }
+  const body = document.createElement("div");
+  body.className = "pano-note-body";
+  const title = document.createElement("div");
+  title.className = "pano-note-title";
+  const label = document.createElement("span");
+  label.textContent = h.label;
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "pano-note-close";
+  closeBtn.setAttribute("aria-label", "Закрыть");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeNote);
+  title.append(label, closeBtn);
+  body.appendChild(title);
+  if (h.note) {
+    const text = document.createElement("div");
+    text.className = "pano-note-text";
+    text.textContent = h.note;
+    body.appendChild(text);
+  }
+  card.appendChild(body);
+  wrapEl.appendChild(card);
+  noteEl = card;
+}
+
 function activateHotspot(h: Hotspot) {
   if (h.targetId) {
     const idx = scenes.findIndex((s) => s.id === h.targetId);
@@ -126,6 +173,10 @@ function activateHotspot(h: Hotspot) {
       goTo(idx);
       return;
     }
+  }
+  if (manifest.features?.richNotes && (h.note || h.photoUrl)) {
+    openNote(h);
+    return;
   }
   flash(h.label);
 }
@@ -148,6 +199,7 @@ async function goTo(index: number) {
   const scene = scenes[index];
   if (!scene) return;
   const token = ++loadToken;
+  closeNote();
 
   titleEl.textContent = scene.title;
   subEl.textContent = `${index + 1} / ${scenes.length}`;
@@ -257,7 +309,9 @@ function handleTap(target: HTMLElement | null) {
   if (spot) {
     const h = currentScene()?.hotspots.find((x) => x.id === spot.dataset.spot);
     if (h) activateHotspot(h);
+    return;
   }
+  if (noteEl && !target?.closest("[data-hud]")) closeNote();
 }
 
 wrapEl.addEventListener(

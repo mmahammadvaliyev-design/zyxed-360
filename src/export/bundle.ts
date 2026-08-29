@@ -8,8 +8,9 @@
 // если у него нет ни одного import/export (собранный Vite-бандл плеера — как раз
 // такой самодостаточный файл, так что classic-тег для него ничем не отличается).
 import { zipSync } from "fflate";
-import { db } from "../db";
+import { db, type Hotspot } from "../db";
 import type { SceneMeta, TourManifest } from "../engine/types";
+import { getFeatureSnapshot } from "../features";
 
 async function fetchBinary(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
@@ -85,6 +86,25 @@ function slugify(s: string): string {
   );
 }
 
+// Хотспот в БД хранит фото заметки как Blob (photo); в манифесте вместо него
+// нужен data: URI (photoUrl, как и с картинками сцен) — Blob не переживёт
+// JSON.stringify.
+async function exportHotspots(hotspots: Hotspot[]): Promise<Hotspot[]> {
+  return Promise.all(
+    hotspots.map(
+      async (h): Promise<Hotspot> => ({
+        id: h.id,
+        yaw: h.yaw,
+        pitch: h.pitch,
+        label: h.label,
+        targetId: h.targetId,
+        note: h.note,
+        photoUrl: h.photo ? await blobToDataUrl(h.photo) : undefined,
+      }),
+    ),
+  );
+}
+
 export async function exportProjectZip(projectId: string): Promise<{ blob: Blob; filename: string }> {
   const project = await db.projects.get(projectId);
   if (!project) throw new Error("Проект не найден");
@@ -96,20 +116,23 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
 
   const manifest: TourManifest = {
     title: project.title,
-    scenes: scenes.map(
-      (s): SceneMeta => ({
-        id: s.id,
-        title: s.title,
-        width: s.width,
-        height: s.height,
-        order: s.order,
-        yaw: s.yaw,
-        pitch: s.pitch,
-        fov: s.fov,
-        hotspots: s.hotspots,
-      }),
+    scenes: await Promise.all(
+      scenes.map(
+        async (s): Promise<SceneMeta> => ({
+          id: s.id,
+          title: s.title,
+          width: s.width,
+          height: s.height,
+          order: s.order,
+          yaw: s.yaw,
+          pitch: s.pitch,
+          fov: s.fov,
+          hotspots: await exportHotspots(s.hotspots),
+        }),
+      ),
     ),
     images,
+    features: getFeatureSnapshot(),
   };
 
   const { js, css, assets } = await collectPlayerAssets();

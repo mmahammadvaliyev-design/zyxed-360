@@ -7,6 +7,13 @@ export interface Hotspot {
   pitch: number; // радианы
   label: string;
   targetId: string | null; // id сцены, куда переходим (null — просто подпись)
+  // Функция «Богатые заметки»: развёрнутое описание info-точки (без targetId).
+  note?: string;
+  // Фото крупным планом — храним как Blob в БД (photo) во время редактирования;
+  // в экспортированном манифесте вместо него — data: URI (photoUrl), как и
+  // с картинками сцен. Оба поля не встречаются вместе на одном объекте.
+  photo?: Blob;
+  photoUrl?: string;
 }
 
 export interface SceneMeta {
@@ -30,4 +37,7 @@ export interface TourManifest {
   title: string;
   scenes: SceneMeta[];
   images: Record<string, string>;
+  // Снимок состояния переключаемых функций на момент экспорта (см. src/features.ts) —
+  // плеер должен вести себя так же, как приложение вело себя при публикации.
+  features?: Record<string, boolean>;
 }

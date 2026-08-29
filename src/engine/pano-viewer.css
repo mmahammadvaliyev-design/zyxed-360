@@ -138,6 +138,28 @@
   appearance: none;
 }
 .pano-input option { color: #14162a; }
+.pano-input[rows] { resize: vertical; }
+
+/* Карточка функции «Богатые заметки» — открывается по тапу на info-точку,
+   не закрывается сама (в отличие от .pano-toast), закрывается только
+   крестиком или тапом мимо. */
+.pano-note {
+  position: absolute; left: 12px; right: 12px; bottom: calc(74px + env(safe-area-inset-bottom));
+  max-width: 420px; margin: 0 auto;
+  display: flex; flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(8, 14, 24, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.pano-note-photo { width: 100%; max-height: 220px; object-fit: cover; display: block; }
+.pano-note-body { padding: 13px 15px 15px; }
+.pano-note-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #fff; font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+.pano-note-close { background: none; border: none; color: #fff; opacity: 0.65; font-size: 15px; line-height: 1; cursor: pointer; padding: 3px; flex-shrink: 0; }
+.pano-note-close:hover { opacity: 1; }
+.pano-note-text { font-size: 13px; line-height: 1.55; color: rgba(255, 255, 255, 0.82); white-space: pre-wrap; }
 
 .pano-strip {
   position: absolute; left: 0; right: 0; bottom: 0;

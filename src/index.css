@@ -30,7 +30,7 @@ body {
 
 .app { max-width: 640px; width: 100%; margin: 0 auto; min-height: 100vh; min-height: 100dvh; padding: 18px 16px calc(24px + env(safe-area-inset-bottom)); }
 
-.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
 .brand-mark {
   width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
   background: var(--grad);
@@ -113,6 +113,25 @@ label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px
   display: flex; align-items: center; justify-content: center;
 }
 .pano-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.switch {
+  flex-shrink: 0;
+  width: 44px; height: 26px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 2px;
+}
+.switch-thumb {
+  display: block;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 22, 42, 0.25);
+  transition: transform 0.15s;
+}
+.switch.on { background: var(--live); border-color: var(--live); }
+.switch.on .switch-thumb { transform: translateX(18px); }
 
 .back-link {
   display: inline-flex; align-items: center; gap: 4px;

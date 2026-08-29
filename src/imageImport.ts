@@ -7,6 +7,7 @@ export type { Bitmap };
 
 const MAX_WIDTH = 4096; // шире хранить незачем — на экране разницы не видно
 const THUMB_WIDTH = 480;
+const NOTE_PHOTO_MAX_WIDTH = 1600; // фото в карточке заметки, не полноэкранная панорама
 
 export interface PreparedImage {
   image: Blob;
@@ -46,6 +47,24 @@ export async function prepareImage(file: Blob): Promise<PreparedImage> {
     const h = Math.max(1, Math.round((MAX_WIDTH * height) / width));
     const image = await canvasToBlob(scaleTo(bmp, MAX_WIDTH, h), 0.9);
     return { image, thumb, width: MAX_WIDTH, height: h };
+  } finally {
+    closeBitmap(bmp);
+  }
+}
+
+// Фото для карточки богатой заметки (функция «Богатые заметки») — обычный
+// снимок, не панорама, уменьшаем только если он реально огромный.
+export async function prepareHotspotPhoto(file: Blob): Promise<Blob> {
+  const bmp = await loadBitmap(file);
+  const { width, height } = bitmapSize(bmp);
+  if (!width || !height) {
+    closeBitmap(bmp);
+    throw new Error("Пустое изображение");
+  }
+  try {
+    if (width <= NOTE_PHOTO_MAX_WIDTH) return file;
+    const h = Math.max(1, Math.round((NOTE_PHOTO_MAX_WIDTH * height) / width));
+    return await canvasToBlob(scaleTo(bmp, NOTE_PHOTO_MAX_WIDTH, h), 0.85);
   } finally {
     closeBitmap(bmp);
   }

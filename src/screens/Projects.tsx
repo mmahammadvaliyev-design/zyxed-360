@@ -90,11 +90,14 @@ export default function Projects() {
   return (
     <div>
       <div className="brand">
-        <div className="brand-mark">Z</div>
-        <div>
-          <h1 style={{ margin: 0 }}>Zyxed 360</h1>
-          <div className="muted">Офлайн-конструктор 360°-туров</div>
+        <div className="row" style={{ gap: 10 }}>
+          <div className="brand-mark">Z</div>
+          <div>
+            <h1 style={{ margin: 0 }}>Zyxed 360</h1>
+            <div className="muted">Офлайн-конструктор 360°-туров</div>
+          </div>
         </div>
+        <button className="ghost small" onClick={() => nav("/settings")} title="Настройки" aria-label="Настройки">⚙</button>
       </div>
 
       <button className="primary" style={{ width: "100%" }} disabled={!!busy} onClick={newProject}>
