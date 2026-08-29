@@ -421,7 +421,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           onClick={(e) => { if (e.detail === 0) activateHotspot(h); }}
           title={h.label}
         >
-          <span className="pano-spot-dot">{h.targetId ? "→" : "i"}</span>
+          <span className="pano-spot-dot">
+            {h.targetId ? (
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+                <path d="M8 5l8 7-8 7" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" stroke="#fff" strokeWidth="2" />
+                <line x1="12" y1="11" x2="12" y2="16" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+                <circle cx="12" cy="8" r="1.15" fill="#fff" />
+              </svg>
+            )}
+          </span>
           <span className="pano-spot-label">{h.label}</span>
         </button>
       ))}
