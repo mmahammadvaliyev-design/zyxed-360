@@ -256,8 +256,8 @@ export default function Editor() {
 
       {list.length > 0 && (
         <>
+          <button className="primary" style={{ width: "100%", marginBottom: 8 }} onClick={() => setOpenId(list[0].id)}>▶ Открыть тур</button>
           <div className="row wrap" style={{ gap: 8, marginBottom: 11 }}>
-            <button className="primary grow" onClick={() => setOpenId(list[0].id)}>▶ Открыть тур</button>
             {list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>Связать по кругу</button>}
             {linearChain && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInChain}>Связать по порядку</button>}
             <button className="ghost" disabled={!!busy} onClick={doExport}>⬇ Экспорт</button>
