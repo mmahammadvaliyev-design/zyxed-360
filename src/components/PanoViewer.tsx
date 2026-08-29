@@ -309,10 +309,17 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
     if (placing && scene && onChange) {
       if (placing === "new" || placing === "new-note") {
-        const spotNew: Hotspot =
-          placing === "new"
-            ? { id: uid(), yaw, pitch, label: "Переход", targetId: nextSceneId() }
-            : { id: uid(), yaw, pitch, label: "Заметка", targetId: null };
+        let spotNew: Hotspot;
+        if (placing === "new") {
+          // Ставим точку слева (по вкусу — "назад") — раньше это всё равно
+          // вело на следующую сцену; теперь направление берём из места
+          // клика: передняя половина сферы — вперёд, задняя — назад.
+          const targetId = Math.abs(wrapAngle(yaw)) < Math.PI / 2 ? nextSceneId() : prevSceneId();
+          const targetTitle = scenes.find((s) => s.id === targetId)?.title ?? "Переход";
+          spotNew = { id: uid(), yaw, pitch, label: targetTitle, targetId };
+        } else {
+          spotNew = { id: uid(), yaw, pitch, label: "Заметка", targetId: null };
+        }
         onChange({ ...scene, hotspots: [...scene.hotspots, spotNew] });
         setSelectedId(spotNew.id);
       } else {
@@ -327,6 +334,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   function nextSceneId(): string | null {
     if (scenes.length < 2) return null;
     return scenes[(sceneIndex + 1) % scenes.length].id;
+  }
+  function prevSceneId(): string | null {
+    if (scenes.length < 2) return null;
+    return scenes[(sceneIndex - 1 + scenes.length) % scenes.length].id;
   }
 
   useEffect(() => {
@@ -444,6 +455,27 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     updateHotspot(hotspotId, { photo });
   }
 
+  // «Соседние» — сцены, куда есть переход прямо с текущей (обычно предыдущая
+  // и следующая по маршруту). Заметка часто видна с нескольких соседних
+  // точек съёмки, поэтому её можно скопировать туда же одним нажатием.
+  function neighborScenes(): Scene[] {
+    if (!scene) return [];
+    const ids = new Set(scene.hotspots.map((h) => h.targetId).filter((id): id is string => !!id));
+    return scenes.filter((s) => ids.has(s.id));
+  }
+  function propagateNoteToNeighbors(h: Hotspot) {
+    if (!onChange) return;
+    const neighbors = neighborScenes();
+    let added = 0;
+    for (const neighbor of neighbors) {
+      if (neighbor.hotspots.some((x) => !x.targetId && x.label === h.label)) continue;
+      const clone: Hotspot = { id: uid(), yaw: h.yaw, pitch: h.pitch, label: h.label, targetId: null, note: h.note, photo: h.photo };
+      onChange({ ...neighbor, hotspots: [...neighbor.hotspots, clone] });
+      added++;
+    }
+    flash(added > 0 ? `Заметка добавлена на соседние панорамы (${added})` : "На соседних панорамах уже есть такая заметка");
+  }
+
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
 
   if (!scene) return null;
@@ -542,6 +574,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                       <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title="Убрать фото">✕ фото</button>
                     )}
                   </div>
+                  {neighborScenes().length > 0 && (
+                    <button className="pano-btn wide" onClick={() => propagateNoteToNeighbors(selected)}>
+                      Показать и на соседних панорамах
+                    </button>
+                  )}
                 </>
               )}
               <div className="row" style={{ gap: 6 }}>
