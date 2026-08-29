@@ -9,6 +9,10 @@ export interface Hotspot {
   targetId: string | null; // id сцены, куда переходим (null — просто подпись)
   // Функция «Богатые заметки»: развёрнутое описание info-точки (без targetId).
   note?: string;
+  // Функция «RU/EN»: английские варианты подписи/описания. Пусто — в
+  // английском режиме плеер показывает русский текст (не оставляет пусто).
+  labelEn?: string;
+  noteEn?: string;
   // Фото крупным планом — храним как Blob в БД (photo) во время редактирования;
   // в экспортированном манифесте вместо него — data: URI (photoUrl), как и
   // с картинками сцен. Оба поля не встречаются вместе на одном объекте.
@@ -19,6 +23,8 @@ export interface Hotspot {
 export interface SceneMeta {
   id: string;
   title: string;
+  // Функция «RU/EN»: английский вариант названия панорамы.
+  titleEn?: string;
   width: number;
   height: number;
   order: number;

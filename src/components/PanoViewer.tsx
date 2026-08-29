@@ -49,6 +49,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const slideshowEnabled = useFeature("slideshow");
   const brandingEnabled = useFeature("branding");
   const branding = useBranding();
+  const i18nEnabled = useFeature("i18n");
+  const [lang, setLang] = useState<"ru" | "en">("ru");
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -449,13 +451,25 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (edit) { setSelectedId(h.id); return; }
     if (h.targetId && scenes.some((s) => s.id === h.targetId)) { goTo(h.targetId); return; }
     if (richNotes && (h.note?.trim() || h.photo)) { setNoteHotspot(h); return; }
-    flash(h.label);
+    flash(hotspotLabel(h));
   }
 
   async function pickNotePhoto(hotspotId: string, file: File | undefined) {
     if (!file) return;
     const photo = await prepareHotspotPhoto(file);
     updateHotspot(hotspotId, { photo });
+  }
+
+  // Функция «RU/EN тур»: если для текущего языка нет перевода — молча
+  // показываем русский, а не пусто.
+  function sceneTitle(s: Scene): string {
+    return lang === "en" && s.titleEn?.trim() ? s.titleEn : s.title;
+  }
+  function hotspotLabel(h: Hotspot): string {
+    return lang === "en" && h.labelEn?.trim() ? h.labelEn : h.label;
+  }
+  function hotspotNote(h: Hotspot): string | undefined {
+    return lang === "en" && h.noteEn?.trim() ? h.noteEn : h.note;
   }
 
   // «Соседние» — сцены, куда есть переход прямо с текущей (обычно предыдущая
@@ -472,7 +486,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     let added = 0;
     for (const neighbor of neighbors) {
       if (neighbor.hotspots.some((x) => !x.targetId && x.label === h.label)) continue;
-      const clone: Hotspot = { id: uid(), yaw: h.yaw, pitch: h.pitch, label: h.label, targetId: null, note: h.note, photo: h.photo };
+      const clone: Hotspot = {
+        id: uid(), yaw: h.yaw, pitch: h.pitch, label: h.label, labelEn: h.labelEn, targetId: null,
+        note: h.note, noteEn: h.noteEn, photo: h.photo,
+      };
       onChange({ ...neighbor, hotspots: [...neighbor.hotspots, clone] });
       added++;
     }
@@ -506,10 +523,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           }}
           style={{ visibility: "hidden" }}
           onClick={(e) => { if (e.detail === 0) activateHotspot(h); }}
-          title={h.label}
+          title={hotspotLabel(h)}
         >
           <span className="pano-spot-dot" />
-          <span className="pano-spot-label">{h.label}</span>
+          <span className="pano-spot-label">{hotspotLabel(h)}</span>
         </button>
       ))}
 
@@ -519,7 +536,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
       <div className="pano-top" data-hud onPointerDown={(e) => e.stopPropagation()}>
         <div className="pano-title">
-          <b>{scene.title}</b>
+          <b>{sceneTitle(scene)}</b>
           <span className="pano-sub">{sceneIndex + 1} / {scenes.length}</span>
         </div>
         <div className="pano-tools">
@@ -532,6 +549,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           )}
           {canFullscreen && (
             <button className="pano-btn" onClick={toggleFullscreen} title="Во весь экран">{fullscreen ? "⤡" : "⤢"}</button>
+          )}
+          {i18nEnabled && (
+            <button className="pano-btn" onClick={() => setLang(lang === "ru" ? "en" : "ru")} title="Язык / Language">
+              {lang === "ru" ? "RU" : "EN"}
+            </button>
           )}
           {editable && (
             <button className={`pano-btn${edit ? " on" : ""}`} onClick={() => { setEdit(!edit); setSelectedId(null); setPlacing(null); }} title="Редактировать переходы">✏️</button>
@@ -548,6 +570,14 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                 <input className="pano-input grow" value={selected.label} onChange={(e) => updateHotspot(selected.id, { label: e.target.value })} placeholder="Подпись" />
                 <button className="pano-btn" onClick={() => setSelectedId(null)}>✕</button>
               </div>
+              {i18nEnabled && (
+                <input
+                  className="pano-input"
+                  value={selected.labelEn ?? ""}
+                  onChange={(e) => updateHotspot(selected.id, { labelEn: e.target.value })}
+                  placeholder="Label (English)"
+                />
+              )}
               <select className="pano-input" value={selected.targetId ?? ""} onChange={(e) => updateHotspot(selected.id, { targetId: e.target.value || null })}>
                 <option value="">Без перехода (просто подпись)</option>
                 {scenes.filter((s) => s.id !== scene.id).map((s) => (
@@ -563,6 +593,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                     value={selected.note ?? ""}
                     onChange={(e) => updateHotspot(selected.id, { note: e.target.value })}
                   />
+                  {i18nEnabled && (
+                    <textarea
+                      className="pano-input"
+                      rows={3}
+                      placeholder="Description (English)"
+                      value={selected.noteEn ?? ""}
+                      onChange={(e) => updateHotspot(selected.id, { noteEn: e.target.value })}
+                    />
+                  )}
                   <div className="row" style={{ gap: 6 }}>
                     <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
                       {selected.photo ? "Заменить фото" : "+ Фото"}
@@ -614,7 +653,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       {scenes.length > 1 && (
         <div className="pano-strip" data-hud onPointerDown={(e) => e.stopPropagation()}>
           {scenes.map((s) => (
-            <button key={s.id} className={`pano-chip${s.id === scene.id ? " on" : ""}`} onClick={() => goTo(s.id)}>{s.title}</button>
+            <button key={s.id} className={`pano-chip${s.id === scene.id ? " on" : ""}`} onClick={() => goTo(s.id)}>{sceneTitle(s)}</button>
           ))}
         </div>
       )}
@@ -624,10 +663,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {notePhotoUrl && <img className="pano-note-photo" src={notePhotoUrl} alt="" />}
           <div className="pano-note-body">
             <div className="pano-note-title">
-              <span>{noteHotspot.label}</span>
+              <span>{hotspotLabel(noteHotspot)}</span>
               <button className="pano-note-close" onClick={() => setNoteHotspot(null)} aria-label="Закрыть">✕</button>
             </div>
-            {noteHotspot.note && <div className="pano-note-text">{noteHotspot.note}</div>}
+            {hotspotNote(noteHotspot) && <div className="pano-note-text">{hotspotNote(noteHotspot)}</div>}
           </div>
         </div>
       )}

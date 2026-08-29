@@ -33,8 +33,17 @@ function scaleTo(src: Bitmap, width: number, height: number): HTMLCanvasElement 
   return canvas;
 }
 
+// Функция «Сжатие панорам при импорте»: опциональные maxWidth/quality
+// поверх дефолтных (MAX_WIDTH/0.9) — когда заданы явно, перекодируем даже
+// снимок, который и без того уже был меньше предела, иначе выбор
+// «Компактно» не давал бы эффекта на уже небольших исходниках.
+export interface PrepareImageOptions {
+  maxWidth?: number;
+  quality?: number;
+}
+
 // Готовим файл к сохранению: уменьшаем гигантские снимки и делаем превью для списка.
-export async function prepareImage(file: Blob): Promise<PreparedImage> {
+export async function prepareImage(file: Blob, opts: PrepareImageOptions = {}): Promise<PreparedImage> {
   const bmp = await loadBitmap(file);
   const { width, height } = bitmapSize(bmp);
   if (!width || !height) {
@@ -44,10 +53,12 @@ export async function prepareImage(file: Blob): Promise<PreparedImage> {
   try {
     const thumbH = Math.max(1, Math.round((THUMB_WIDTH * height) / width));
     const thumb = await canvasToBlob(scaleTo(bmp, THUMB_WIDTH, thumbH), 0.75);
-    if (width <= MAX_WIDTH) return { image: file, thumb, width, height };
-    const h = Math.max(1, Math.round((MAX_WIDTH * height) / width));
-    const image = await canvasToBlob(scaleTo(bmp, MAX_WIDTH, h), 0.9);
-    return { image, thumb, width: MAX_WIDTH, height: h };
+    const maxWidth = opts.maxWidth ?? MAX_WIDTH;
+    const targetWidth = Math.min(width, maxWidth);
+    if (targetWidth === width && opts.quality === undefined) return { image: file, thumb, width, height };
+    const targetHeight = Math.max(1, Math.round((targetWidth * height) / width));
+    const image = await canvasToBlob(scaleTo(bmp, targetWidth, targetHeight), opts.quality ?? 0.9);
+    return { image, thumb, width: targetWidth, height: targetHeight };
   } finally {
     closeBitmap(bmp);
   }

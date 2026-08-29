@@ -100,6 +100,8 @@ async function exportHotspots(hotspots: Hotspot[]): Promise<Hotspot[]> {
         label: h.label,
         targetId: h.targetId,
         note: h.note,
+        labelEn: h.labelEn,
+        noteEn: h.noteEn,
         photoUrl: h.photo ? await blobToDataUrl(h.photo) : undefined,
       }),
     ),
@@ -122,6 +124,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
         async (s): Promise<SceneMeta> => ({
           id: s.id,
           title: s.title,
+          titleEn: s.titleEn,
           width: s.width,
           height: s.height,
           order: s.order,

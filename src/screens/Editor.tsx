@@ -22,6 +22,19 @@ function sizeMb(scenes: Scene[]): string {
   return (bytes / 1024 / 1024).toFixed(1);
 }
 
+// Функция «Сжатие панорам при импорте».
+type CompressionPresetId = "original" | "standard" | "compact";
+const COMPRESSION_PRESETS: { id: CompressionPresetId; label: string }[] = [
+  { id: "original", label: "Оригинал — без доп. сжатия" },
+  { id: "standard", label: "Стандарт — до 2048px, качество 85%" },
+  { id: "compact", label: "Компактно — до 1440px, качество 72%" },
+];
+function compressionOpts(id: CompressionPresetId): { maxWidth?: number; quality?: number } {
+  if (id === "standard") return { maxWidth: 2048, quality: 0.85 };
+  if (id === "compact") return { maxWidth: 1440, quality: 0.72 };
+  return {};
+}
+
 export default function Editor() {
   const { id } = useParams<{ id: string }>();
   const projectId = id!;
@@ -35,13 +48,30 @@ export default function Editor() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const circleLink = useFeature("circleLink");
   const linearChain = useFeature("linearChain");
   const projectBackup = useFeature("projectBackup");
   const qrCode = useFeature("qrCode");
+  const compression = useFeature("compression");
+  const dragReorder = useFeature("dragReorder");
+  const i18n = useFeature("i18n");
   const [qrUrl, setQrUrl] = useState("");
   const [qrError, setQrError] = useState<string | null>(null);
   const [hasQr, setHasQr] = useState(false);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [compressionPreset, setCompressionPreset] = useState<CompressionPresetId>("original");
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const dragInfoRef = useRef<{ id: string; pointerId: number } | null>(null);
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  // dragEnd читает итоговый порядок напрямую из dragOrder — а это значение
+  // из замыкания РЕНДЕРА, в котором был создан текущий onPointerUp-обработчик.
+  // При очень быстром жесте (down→move→up быстрее, чем React успевает
+  // перерендерить и подставить свежий обработчик) сработал бы устаревший
+  // dragEnd, всё ещё видящий dragOrder === null от самого первого рендера —
+  // перетаскивание тихо ничего бы не сохранило. Дублируем в реф, обновляем
+  // синхронно вместе с setDragOrder — dragEnd берёт значение оттуда.
+  const dragOrderRef = useRef<string[] | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -69,7 +99,7 @@ export default function Editor() {
       const file = files[i];
       setBusy(`Обрабатываю ${i + 1} из ${files.length}…`);
       try {
-        const prep = await prepareImage(file);
+        const prep = await prepareImage(file, compression ? compressionOpts(compressionPreset) : {});
         warned = warned ?? ratioHint(prep.width, prep.height);
         await db.scenes.put({
           id: uid(),
@@ -157,6 +187,72 @@ export default function Editor() {
     await touch();
   }
 
+  async function renameEn(scene: Scene, titleEn: string) {
+    await db.scenes.update(scene.id, { titleEn: titleEn || undefined });
+    await touch();
+  }
+
+  // Функция «Перетаскивание панорам для сортировки». Держим порядок id во
+  // время перетаскивания в отдельном стейте (dragOrder) и позиционируем по
+  // реальным координатам карточек (cardRefs), а не по индексу события — так
+  // работает и мышью, и пальцем (setPointerCapture ловит move/up, даже если
+  // палец уходит за пределы самой ручки).
+  function dragStart(e: React.PointerEvent, id: string) {
+    if (!dragReorder) return;
+    // setPointerCapture кидает исключение, если браузер уже не считает этот
+    // pointerId активным (редкий edge-case) — само перетаскивание от этого
+    // не зависит, только удобство (move/up ловятся, даже если палец уходит
+    // за пределы ручки), поэтому не даём такому сбою сорвать инициализацию.
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* см. комментарий выше */
+    }
+    dragInfoRef.current = { id, pointerId: e.pointerId };
+    const initial = list.map((s) => s.id);
+    dragOrderRef.current = initial;
+    setDragOrder(initial);
+    setDraggingId(id);
+  }
+
+  function dragMove(e: React.PointerEvent) {
+    const info = dragInfoRef.current;
+    if (!info) return;
+    const y = e.clientY;
+    setDragOrder((cur) => {
+      if (!cur) return cur;
+      let overIndex = cur.length - 1;
+      for (let i = 0; i < cur.length; i++) {
+        const el = cardRefs.current.get(cur[i]);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (y < rect.top + rect.height / 2) { overIndex = i; break; }
+      }
+      const curIndex = cur.indexOf(info.id);
+      if (overIndex === curIndex) return cur;
+      const next = [...cur];
+      next.splice(curIndex, 1);
+      next.splice(overIndex, 0, info.id);
+      dragOrderRef.current = next;
+      return next;
+    });
+  }
+
+  async function dragEnd() {
+    const info = dragInfoRef.current;
+    dragInfoRef.current = null;
+    setDraggingId(null);
+    const finalOrder = dragOrderRef.current;
+    dragOrderRef.current = null;
+    setDragOrder(null);
+    if (!info || !finalOrder) return;
+    const changed = finalOrder.some((id, i) => list[i]?.id !== id);
+    if (changed) {
+      await Promise.all(finalOrder.map((id, i) => db.scenes.update(id, { order: i })));
+      await touch();
+    }
+  }
+
   async function move(index: number, dir: -1 | 1) {
     const a = list[index];
     const b = list[index + dir];
@@ -238,6 +334,10 @@ export default function Editor() {
     });
   }
 
+  const displayList = dragOrder
+    ? dragOrder.map((id) => list.find((s) => s.id === id)).filter((s): s is Scene => !!s)
+    : list;
+
   const openScene = openId ? list.find((s) => s.id === openId) : null;
 
   if (project === undefined) return null;
@@ -281,6 +381,18 @@ export default function Editor() {
           Подойдёт любой сферический снимок 2:1 — из режима «Панорама 360» на телефоне,
           с экшн-камеры или из Google Street View.
         </p>
+        {compression && (
+          <select
+            value={compressionPreset}
+            onChange={(e) => setCompressionPreset(e.target.value as CompressionPresetId)}
+            style={{ marginTop: 10 }}
+            aria-label="Качество при импорте"
+          >
+            {COMPRESSION_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {busy && <div className="card center muted">{busy}</div>}
@@ -289,7 +401,7 @@ export default function Editor() {
         <>
           <button className="primary" style={{ width: "100%", marginBottom: 8 }} onClick={() => setOpenId(list[0].id)}>▶ Открыть тур</button>
           <div className="row wrap" style={{ gap: 8, marginBottom: 11 }}>
-            {list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>Связать по кругу</button>}
+            {circleLink && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>Связать по кругу</button>}
             {linearChain && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInChain}>Связать по порядку</button>}
             <button className="ghost" disabled={!!busy} onClick={doExport}>⬇ Экспорт</button>
             {projectBackup && <button className="ghost" disabled={!!busy} onClick={doBackupExport} title="Полная копия проекта — для переноса или бэкапа">💾 Копия</button>}
@@ -323,13 +435,41 @@ export default function Editor() {
           )}
 
           <h2>Панорамы · {list.length} шт · {sizeMb(list)} МБ</h2>
-          {list.map((s, i) => (
-            <div className="card pano-item" key={s.id}>
+          {displayList.map((s, i) => (
+            <div
+              className={`card pano-item${draggingId === s.id ? " dragging" : ""}`}
+              key={s.id}
+              ref={(el) => { if (el) cardRefs.current.set(s.id, el); else cardRefs.current.delete(s.id); }}
+            >
+              {dragReorder && (
+                <button
+                  className="ghost small"
+                  style={{ cursor: "grab", touchAction: "none", alignSelf: "center", flexShrink: 0 }}
+                  onPointerDown={(e) => dragStart(e, s.id)}
+                  onPointerMove={dragMove}
+                  onPointerUp={dragEnd}
+                  onPointerCancel={dragEnd}
+                  aria-label="Перетащить для сортировки"
+                  title="Перетащите, чтобы переставить"
+                >
+                  ⠿
+                </button>
+              )}
               <button className="pano-thumb" onClick={() => setOpenId(s.id)} title="Открыть">
                 {thumbs[s.id] ? <img src={thumbs[s.id]} alt="" /> : <span className="muted">…</span>}
               </button>
               <div className="grow">
                 <input type="text" value={s.title} onChange={(e) => rename(s, e.target.value)} aria-label="Название панорамы" />
+                {i18n && (
+                  <input
+                    type="text"
+                    value={s.titleEn ?? ""}
+                    onChange={(e) => renameEn(s, e.target.value)}
+                    placeholder="English title (необязательно)"
+                    aria-label="Название по-английски"
+                    style={{ marginTop: 6 }}
+                  />
+                )}
                 <div className="muted" style={{ marginTop: 6 }}>{s.width}×{s.height} · переходов: {s.hotspots.length}</div>
                 <div className="row" style={{ gap: 6, marginTop: 8 }}>
                   <button className="ghost small" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Выше">↑</button>
