@@ -36,7 +36,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [placing, setPlacing] = useState<"new" | string | null>(null);
+  const [placing, setPlacing] = useState<"new" | "new-note" | string | null>(null);
   const [autorotate, setAutorotate] = useState(false);
   const [gyro, setGyro] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -308,8 +308,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const { yaw, pitch } = unproject(clientX - rect.left, clientY - rect.top, basis, rect.width, rect.height);
 
     if (placing && scene && onChange) {
-      if (placing === "new") {
-        const spotNew: Hotspot = { id: uid(), yaw, pitch, label: "Переход", targetId: nextSceneId() };
+      if (placing === "new" || placing === "new-note") {
+        const spotNew: Hotspot =
+          placing === "new"
+            ? { id: uid(), yaw, pitch, label: "Переход", targetId: nextSceneId() }
+            : { id: uid(), yaw, pitch, label: "Заметка", targetId: null };
         onChange({ ...scene, hotspots: [...scene.hotspots, spotNew] });
         setSelectedId(spotNew.id);
       } else {
@@ -549,12 +552,21 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
               </div>
             </>
           ) : (
-            <div className="row" style={{ gap: 6 }}>
-              <button className={`pano-btn wide${placing === "new" ? " on" : ""}`} onClick={() => setPlacing(placing === "new" ? null : "new")}>
-                {placing === "new" ? "Нажми, куда поставить" : "+ Переход"}
-              </button>
-              <button className="pano-btn wide" onClick={saveStartView}>Запомнить вид</button>
-            </div>
+            <>
+              <div className="row" style={{ gap: 6 }}>
+                <button className={`pano-btn wide${placing === "new" ? " on" : ""}`} onClick={() => setPlacing(placing === "new" ? null : "new")}>
+                  {placing === "new" ? "Нажми, куда поставить" : "+ Переход"}
+                </button>
+                {richNotes && (
+                  <button className={`pano-btn wide${placing === "new-note" ? " on" : ""}`} onClick={() => setPlacing(placing === "new-note" ? null : "new-note")}>
+                    {placing === "new-note" ? "Нажми, куда поставить" : "+ Заметка"}
+                  </button>
+                )}
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="pano-btn wide" onClick={saveStartView}>Запомнить вид</button>
+              </div>
+            </>
           )}
         </div>
       )}
