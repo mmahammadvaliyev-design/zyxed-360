@@ -7,6 +7,7 @@ import { prepareImage, ratioHint } from "../imageImport";
 import { downloadBlob, exportProjectZip } from "../export/bundle";
 import PanoViewer from "../components/PanoViewer";
 import { useEffect } from "react";
+import { useFeature } from "../features";
 
 function titleFromFile(name: string): string {
   const base = name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
@@ -32,6 +33,7 @@ export default function Editor() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const linearChain = useFeature("linearChain");
 
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -106,6 +108,26 @@ export default function Editor() {
     await touch();
     setBusy(null);
     setNote("Переходы расставлены: вправо — следующая панорама, влево — предыдущая. Место можно поправить в туре (карандаш).");
+  }
+
+  // Функция «Линейная цепочка переходов»: то же, что «по кругу», но без
+  // замыкания — первая панорама без "предыдущей", последняя без "следующей".
+  async function linkInChain() {
+    if (list.length < 2) return;
+    setBusy("Расставляю переходы…");
+    for (let i = 0; i < list.length; i++) {
+      const scene = list[i];
+      const next = i < list.length - 1 ? list[i + 1] : null;
+      const prev = i > 0 ? list[i - 1] : null;
+      const wanted: Hotspot[] = [];
+      if (next) wanted.push({ id: uid(), yaw: rad(90), pitch: rad(-8), label: next.title, targetId: next.id });
+      if (prev) wanted.push({ id: uid(), yaw: rad(-90), pitch: rad(-8), label: prev.title, targetId: prev.id });
+      const add = wanted.filter((w) => !scene.hotspots.some((h) => h.targetId === w.targetId));
+      if (add.length) await db.scenes.update(scene.id, { hotspots: [...scene.hotspots, ...add] });
+    }
+    await touch();
+    setBusy(null);
+    setNote("Переходы расставлены по порядку: вправо — следующая панорама, влево — предыдущая. Первая и последняя панорамы соединены только в одну сторону — без цикла.");
   }
 
   async function rename(scene: Scene, title: string) {
@@ -204,6 +226,7 @@ export default function Editor() {
           <div className="row wrap" style={{ gap: 8, marginBottom: 11 }}>
             <button className="primary grow" onClick={() => setOpenId(list[0].id)}>▶ Открыть тур</button>
             {list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>Связать по кругу</button>}
+            {linearChain && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInChain}>Связать по порядку</button>}
             <button className="ghost" disabled={!!busy} onClick={doExport}>⬇ Экспорт</button>
           </div>
 
