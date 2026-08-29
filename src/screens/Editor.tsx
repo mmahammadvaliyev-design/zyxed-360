@@ -5,6 +5,7 @@ import { db, uid, type Hotspot, type Scene } from "../db";
 import { DEFAULT_FOV, rad } from "../engine/pano";
 import { prepareImage, ratioHint } from "../imageImport";
 import { downloadBlob, exportProjectZip } from "../export/bundle";
+import { exportProjectBackup } from "../export/backup";
 import PanoViewer from "../components/PanoViewer";
 import { useEffect } from "react";
 import { useFeature } from "../features";
@@ -34,6 +35,7 @@ export default function Editor() {
   const [note, setNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const linearChain = useFeature("linearChain");
+  const projectBackup = useFeature("projectBackup");
 
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -188,6 +190,23 @@ export default function Editor() {
     }
   }
 
+  // Функция «Резервная копия / перенос проекта»: полный редактируемый
+  // проект (не готовый тур для просмотра, а всё, что можно снова открыть
+  // и редактировать) — на другое устройство или в другой браузер.
+  async function doBackupExport() {
+    setNote(null);
+    setBusy("Собираю резервную копию…");
+    try {
+      const { blob, filename } = await exportProjectBackup(projectId);
+      downloadBlob(blob, filename);
+      setNote(`Готово: ${filename} скачан. Это полная копия проекта — храните файл или перенесите на другое устройство через «Импортировать копию» на главном экране.`);
+    } catch (e) {
+      setNote(`Не удалось собрать копию: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const openScene = openId ? list.find((s) => s.id === openId) : null;
 
   if (project === undefined) return null;
@@ -242,6 +261,7 @@ export default function Editor() {
             {list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>Связать по кругу</button>}
             {linearChain && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInChain}>Связать по порядку</button>}
             <button className="ghost" disabled={!!busy} onClick={doExport}>⬇ Экспорт</button>
+            {projectBackup && <button className="ghost" disabled={!!busy} onClick={doBackupExport} title="Полная копия проекта — для переноса или бэкапа">💾 Копия</button>}
           </div>
 
           <h2>Панорамы · {list.length} шт · {sizeMb(list)} МБ</h2>

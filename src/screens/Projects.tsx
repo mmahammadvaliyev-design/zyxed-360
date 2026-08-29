@@ -1,16 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
 import { createProject, db, deleteProject, duplicateProject, uid, type Project, type Scene } from "../db";
 import { DEFAULT_FOV, rad } from "../engine/pano";
 import { DEMO_PRESETS, makeDemoPanorama, prepareImage } from "../imageImport";
+import { importProjectBackup } from "../export/backup";
+import { useFeature } from "../features";
 
 export default function Projects() {
   const nav = useNavigate();
   const projects = useLiveQuery(() => db.projects.orderBy("updatedAt").reverse().toArray(), []);
   const firstScenes = useLiveQuery(() => db.scenes.toArray(), []);
   const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const backupRef = useRef<HTMLInputElement>(null);
+  const projectBackup = useFeature("projectBackup");
 
   // Превью первой панорамы каждого проекта (по минимальному order).
   useEffect(() => {
@@ -87,6 +92,24 @@ export default function Projects() {
     }
   }
 
+  // Функция «Резервная копия / перенос проекта»: восстанавливаем полный
+  // редактируемый тур из файла, собранного кнопкой «Копия» в редакторе —
+  // всегда как новый проект, чтобы не перезаписать что-то существующее.
+  async function importBackup(file: File | undefined) {
+    if (!file) return;
+    setNote(null);
+    setBusy("Импортирую копию…");
+    try {
+      const project = await importProjectBackup(file);
+      nav(`/p/${project.id}`);
+    } catch (e) {
+      setNote(`Не удалось импортировать копию: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+      if (backupRef.current) backupRef.current.value = "";
+    }
+  }
+
   return (
     <div>
       <div className="brand">
@@ -106,7 +129,29 @@ export default function Projects() {
       <button className="ghost" style={{ width: "100%", marginTop: 8 }} disabled={!!busy} onClick={addDemoProject}>
         Показать демо-тур
       </button>
+      {projectBackup && (
+        <>
+          <button className="ghost" style={{ width: "100%", marginTop: 8 }} disabled={!!busy} onClick={() => backupRef.current?.click()}>
+            ⬆ Импортировать копию
+          </button>
+          <input
+            ref={backupRef}
+            type="file"
+            accept=".zip,application/zip"
+            style={{ display: "none" }}
+            onChange={(e) => importBackup(e.target.files?.[0])}
+          />
+        </>
+      )}
 
+      {note && (
+        <div className="card banner" style={{ marginTop: 11 }}>
+          <div className="row spread" style={{ gap: 8, alignItems: "flex-start" }}>
+            <div style={{ lineHeight: 1.5 }}>{note}</div>
+            <button className="ghost small" onClick={() => setNote(null)} aria-label="Скрыть">✕</button>
+          </div>
+        </div>
+      )}
       {busy && <div className="card center muted" style={{ marginTop: 11 }}>{busy}</div>}
 
       {projects && projects.length > 0 && (
