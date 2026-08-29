@@ -3,7 +3,10 @@
 // и всё это в один ZIP. Результат можно залить на любой статический хостинг
 // (GitHub Pages, Netlify, Vercel), а можно и просто открыть index.html двойным
 // кликом с диска: данные не запрашиваются отдельным fetch(), которые браузеры
-// блокируют для локальных файлов по file://.
+// блокируют для локальных файлов по file://, а сам скрипт мы кладём как обычный
+// classic <script> — Chrome блокирует по file:// и <script type="module">, даже
+// если у него нет ни одного import/export (собранный Vite-бандл плеера — как раз
+// такой самодостаточный файл, так что classic-тег для него ничем не отличается).
 import { zipSync } from "fflate";
 import { db } from "../db";
 import type { SceneMeta, TourManifest } from "../engine/types";
@@ -25,7 +28,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 // Разбираем index.html плеера, чтобы найти его js/css файлы — так не важно, как Vite
 // назвал хэшированные assets/*.js при сборке.
-async function collectPlayerAssets(): Promise<{ html: string; assets: Record<string, Uint8Array> }> {
+async function collectPlayerAssets(): Promise<{ js: string[]; css: string[]; assets: Record<string, Uint8Array> }> {
   const base = "./player/";
   const htmlRes = await fetch(base + "index.html");
   if (!htmlRes.ok) {
@@ -33,14 +36,42 @@ async function collectPlayerAssets(): Promise<{ html: string; assets: Record<str
   }
   const html = await htmlRes.text();
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const refs = new Set<string>();
-  doc.querySelectorAll("script[src], link[href]").forEach((el) => {
-    const src = el.getAttribute("src") || el.getAttribute("href");
-    if (src && !/^(https?:)?\/\//.test(src)) refs.add(src.replace(/^\.\//, ""));
+  const js: string[] = [];
+  const css: string[] = [];
+  doc.querySelectorAll("script[src]").forEach((el) => {
+    const src = el.getAttribute("src");
+    if (src && !/^(https?:)?\/\//.test(src)) js.push(src.replace(/^\.\//, ""));
+  });
+  doc.querySelectorAll("link[href]").forEach((el) => {
+    const href = el.getAttribute("href");
+    if (href && !/^(https?:)?\/\//.test(href)) css.push(href.replace(/^\.\//, ""));
   });
   const assets: Record<string, Uint8Array> = {};
-  for (const ref of refs) assets[ref] = await fetchBinary(base + ref);
-  return { html, assets };
+  for (const ref of [...js, ...css]) assets[ref] = await fetchBinary(base + ref);
+  return { js, css, assets };
+}
+
+function buildIndexHtml(opts: { js: string[]; css: string[]; dataScript: string }): string {
+  const cssLinks = opts.css.map((href) => `    <link rel="stylesheet" href="./${href}" />`).join("\n");
+  // Classic-скрипт (без type="module") в head выполнился бы до появления
+  // #app в body — ставим в конец body, как исходник player/index.html.
+  const jsScripts = opts.js.map((src) => `    <script src="./${src}"></script>`).join("\n");
+  return `<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#05060c" />
+    <title>360°-тур</title>
+${cssLinks}
+    ${opts.dataScript}
+  </head>
+  <body>
+    <div id="app"></div>
+${jsScripts}
+  </body>
+</html>
+`;
 }
 
 function slugify(s: string): string {
@@ -81,14 +112,14 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     images,
   };
 
-  const { html, assets } = await collectPlayerAssets();
+  const { js, css, assets } = await collectPlayerAssets();
   // Заголовки/подписи переходов — пользовательский текст; экранируем "<", чтобы
   // случайное "</script>" в подписи не сломало встроенный JSON и не превратилось
   // в разметку/скрипт на странице тура.
   const dataScript = `<script id="tour-data" type="application/json">${JSON.stringify(manifest).replace(/</g, "\\u003c")}</script>`;
-  const withData = html.replace("</head>", `${dataScript}</head>`);
+  const indexHtml = buildIndexHtml({ js, css, dataScript });
 
-  const files: Record<string, Uint8Array> = { "index.html": new TextEncoder().encode(withData), ...assets };
+  const files: Record<string, Uint8Array> = { "index.html": new TextEncoder().encode(indexHtml), ...assets };
 
   const zipped = zipSync(files, { level: 6 });
   return { blob: new Blob([zipped], { type: "application/zip" }), filename: `${slugify(project.title)}.zip` };
