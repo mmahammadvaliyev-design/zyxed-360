@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
-import { createProject, db, deleteProject, duplicateProject, uid, type Project, type Scene } from "../db";
-import { DEFAULT_FOV, rad } from "../engine/pano";
-import { DEMO_PRESETS, makeDemoPanorama, prepareImage } from "../imageImport";
+import { createProject, db, deleteProject, duplicateProject, type Project, type Scene } from "../db";
 import { importProjectBackup } from "../export/backup";
 import { useFeature } from "../features";
 
@@ -37,41 +35,6 @@ export default function Projects() {
   async function newProject() {
     const p = await createProject("Новый тур");
     nav(`/p/${p.id}`);
-  }
-
-  async function addDemoProject() {
-    setBusy("Рисую демо-тур…");
-    try {
-      const project = await createProject("Демо-тур");
-      const ids = DEMO_PRESETS.map(() => uid());
-      for (let i = 0; i < DEMO_PRESETS.length; i++) {
-        const preset = DEMO_PRESETS[i];
-        const blob = await makeDemoPanorama(preset);
-        const prep = await prepareImage(blob);
-        const next = DEMO_PRESETS[(i + 1) % DEMO_PRESETS.length];
-        const prev = DEMO_PRESETS[(i - 1 + DEMO_PRESETS.length) % DEMO_PRESETS.length];
-        await db.scenes.put({
-          id: ids[i],
-          projectId: project.id,
-          title: preset.title,
-          image: prep.image,
-          thumb: prep.thumb,
-          width: prep.width,
-          height: prep.height,
-          order: i,
-          yaw: 0,
-          pitch: 0,
-          fov: DEFAULT_FOV,
-          hotspots: [
-            { id: uid(), yaw: rad(90), pitch: rad(-8), label: next.title, targetId: ids[(i + 1) % ids.length] },
-            { id: uid(), yaw: rad(-90), pitch: rad(-8), label: prev.title, targetId: ids[(i - 1 + ids.length) % ids.length] },
-          ],
-        });
-      }
-      nav(`/p/${project.id}`);
-    } finally {
-      setBusy(null);
-    }
   }
 
   async function rename(p: Project, title: string) {
@@ -125,9 +88,6 @@ export default function Projects() {
 
       <button className="primary" style={{ width: "100%" }} disabled={!!busy} onClick={newProject}>
         + Новый тур
-      </button>
-      <button className="ghost" style={{ width: "100%", marginTop: 8 }} disabled={!!busy} onClick={addDemoProject}>
-        Показать демо-тур
       </button>
       {projectBackup && (
         <>
@@ -184,8 +144,7 @@ export default function Projects() {
 
       {projects && projects.length === 0 && !busy && (
         <div className="empty">
-          Туров пока нет. Создайте новый — или нажмите «Показать демо-тур»,
-          чтобы сразу увидеть, как это работает.
+          Туров пока нет. Нажмите «+ Новый тур», чтобы начать.
         </div>
       )}
     </div>
