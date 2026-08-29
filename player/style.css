@@ -1,0 +1,10 @@
+@import "../src/engine/pano-viewer.css";
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; overflow: hidden; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  background: #05060c;
+  color: #fff;
+}
+.pano-wrap { position: fixed; }

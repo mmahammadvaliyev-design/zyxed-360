@@ -1,0 +1,123 @@
+@import "./engine/pano-viewer.css";
+
+:root {
+  --bg: #f5f6fb;
+  --surface: #ffffff;
+  --surface-2: #eef0f7;
+  --border: #e5e6f1;
+  --text: #14162a;
+  --muted: #6b7189;
+  --accent: #6d28d9;
+  --accent-soft: #f2ecff;
+  --grad: linear-gradient(135deg, #5b4bff 0%, #7c3aed 48%, #ec4899 100%);
+  --red: #dc2626;
+  --red-soft: #fdeaea;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 42, 0.05);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app { max-width: 640px; width: 100%; margin: 0 auto; min-height: 100vh; min-height: 100dvh; padding: 18px 16px calc(24px + env(safe-area-inset-bottom)); }
+
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.brand-mark {
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+  background: var(--grad);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; font-size: 15px;
+}
+.brand h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+.brand .muted { font-size: 12px; }
+
+h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 4px 0 14px; }
+h2 { font-size: 13px; margin: 20px 0 9px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 15px;
+  margin-bottom: 11px;
+  box-shadow: var(--shadow-sm);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 11px;
+  padding: 10px 15px;
+  color: var(--text);
+  background: var(--surface-2);
+  transition: filter 0.15s, background 0.15s, transform 0.05s;
+}
+button:hover { filter: brightness(0.97); }
+button:active { transform: translateY(1px); }
+button.primary { background: var(--grad); color: #fff; font-weight: 600; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.32); }
+button.primary:hover { filter: brightness(1.06); }
+button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+button.small { padding: 7px 12px; font-size: 13px; }
+button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+
+textarea, input[type="text"], input[type="file"], select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+
+.row { display: flex; gap: 8px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.spread { justify-content: space-between; }
+.grow { flex: 1; min-width: 0; }
+.muted { color: var(--muted); font-size: 13px; }
+.center { text-align: center; }
+.banner { background: #fdf1e0; border-color: #f3ddb8; }
+.empty { text-align: center; color: var(--muted); padding: 40px 16px; line-height: 1.6; }
+
+.proj-item { display: flex; gap: 12px; align-items: center; }
+.proj-thumb {
+  width: 76px; height: 48px; flex-shrink: 0;
+  border-radius: 10px; overflow: hidden;
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 20px;
+}
+.proj-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.proj-title { font-weight: 700; font-size: 15px; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pano-item { display: flex; gap: 11px; align-items: flex-start; }
+.pano-thumb {
+  width: 92px; height: 46px; flex-shrink: 0;
+  padding: 0; border-radius: 9px; overflow: hidden;
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: center;
+}
+.pano-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.back-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: none; padding: 0; margin-bottom: 10px;
+  color: var(--muted); font-size: 13px;
+}
+
+@media (max-width: 360px) {
+  .app { padding-left: 12px; padding-right: 12px; }
+  h1 { font-size: 20px; }
+}

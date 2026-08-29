@@ -1,0 +1,14 @@
+{
+  "name": "Zyxed 360 — конструктор туров",
+  "short_name": "Zyxed 360",
+  "description": "Офлайн-конструктор 360°-туров по панорамам. Создавайте, редактируйте и публикуйте туры без сервера.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0c14",
+  "theme_color": "#0b0c14",
+  "lang": "ru",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

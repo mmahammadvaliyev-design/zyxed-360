@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-ssr
+public/player
+*.local
+.DS_Store
