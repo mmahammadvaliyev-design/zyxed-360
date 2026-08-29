@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FEATURES, setFeatureEnabled, useFeature, type FeatureFlag } from "../features";
 import { setBranding, useBranding } from "../branding";
+import { setAppLanguage, useAppLanguage } from "../appLanguage";
 import { prepareBrandingLogo } from "../imageImport";
 
 function FeatureRow({ feature }: { feature: FeatureFlag }) {
@@ -82,9 +83,30 @@ function BrandingEditor() {
   );
 }
 
+// Язык приложения для функции «RU/EN тур» — выбор здесь сразу меняет, какой
+// вариант (RU/EN) показывается в приложении, и на каком языке соберётся
+// следующий экспорт. Никакого переключателя внутри самого тура больше нет.
+function LanguageSelector() {
+  const lang = useAppLanguage();
+  return (
+    <div className="card" style={{ marginTop: -5, marginBottom: 11 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>Язык приложения</div>
+      <div className="row" style={{ gap: 6 }}>
+        <button className={lang === "ru" ? "primary" : "ghost"} style={{ flex: 1 }} onClick={() => setAppLanguage("ru")}>
+          Русский
+        </button>
+        <button className={lang === "en" ? "primary" : "ghost"} style={{ flex: 1 }} onClick={() => setAppLanguage("en")}>
+          English
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const nav = useNavigate();
   const brandingOn = useFeature("branding");
+  const i18nOn = useFeature("i18n");
   return (
     <div>
       <button className="back-link" onClick={() => nav("/")}>← Мои туры</button>
@@ -98,6 +120,7 @@ export default function Settings() {
         <div key={f.id}>
           <FeatureRow feature={f} />
           {f.id === "branding" && brandingOn && <BrandingEditor />}
+          {f.id === "i18n" && i18nOn && <LanguageSelector />}
         </div>
       ))}
     </div>

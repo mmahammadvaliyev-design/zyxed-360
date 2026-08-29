@@ -1,9 +1,46 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
-import { createProject, db, deleteProject, duplicateProject, type Project, type Scene } from "../db";
+import { createProject, db, deleteProject, duplicateProject, uniqueProjectTitle, type Project, type Scene } from "../db";
 import { importProjectBackup } from "../export/backup";
 import { useFeature } from "../features";
+
+// Название тура — обязательное и уникальное (см. uniqueProjectTitle в db.ts).
+// Локальный черновик, чтобы не писать в БД на каждое нажатие клавиши и не
+// откатывать курсор пользователю; проверка — по потере фокуса.
+function ProjectTitleInput({ project, onError }: { project: Project; onError: (msg: string) => void }) {
+  const [draft, setDraft] = useState(project.title);
+  useEffect(() => setDraft(project.title), [project.id, project.title]);
+
+  async function commit() {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      setDraft(project.title);
+      onError("Название тура не может быть пустым.");
+      return;
+    }
+    if (trimmed === project.title) return;
+    const unique = await uniqueProjectTitle(trimmed, project.id);
+    if (unique !== trimmed) {
+      setDraft(project.title);
+      onError(`Тур с названием «${trimmed}» уже есть — выберите другое название.`);
+      return;
+    }
+    await db.projects.update(project.id, { title: trimmed, updatedAt: new Date().toISOString() });
+  }
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      aria-label="Название тура"
+      style={{ fontWeight: 700, padding: "6px 8px" }}
+    />
+  );
+}
 
 export default function Projects() {
   const nav = useNavigate();
@@ -33,12 +70,9 @@ export default function Projects() {
   for (const s of firstScenes ?? []) countByProject.set(s.projectId, (countByProject.get(s.projectId) ?? 0) + 1);
 
   async function newProject() {
-    const p = await createProject("Новый тур");
+    const title = await uniqueProjectTitle("Новый тур");
+    const p = await createProject(title);
     nav(`/p/${p.id}`);
-  }
-
-  async function rename(p: Project, title: string) {
-    await db.projects.update(p.id, { title, updatedAt: new Date().toISOString() });
   }
 
   async function remove(p: Project) {
@@ -123,13 +157,7 @@ export default function Projects() {
                 {thumbs[p.id] ? <img src={thumbs[p.id]} alt="" /> : "🌐"}
               </button>
               <div className="grow">
-                <input
-                  type="text"
-                  value={p.title}
-                  onChange={(e) => rename(p, e.target.value)}
-                  aria-label="Название тура"
-                  style={{ fontWeight: 700, padding: "6px 8px" }}
-                />
+                <ProjectTitleInput project={p} onError={setNote} />
                 <div className="muted" style={{ marginTop: 6 }}>{countByProject.get(p.id) ?? 0} панорам</div>
                 <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
                   <button className="ghost small grow" onClick={() => nav(`/p/${p.id}`)}>Открыть</button>

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate, useParams } from "react-router-dom";
-import { db, uid, type Hotspot, type Scene } from "../db";
+import { db, deleteProject, uid, uniqueProjectTitle, type Hotspot, type Scene } from "../db";
 import { DEFAULT_FOV, rad } from "../engine/pano";
 import { prepareImage, ratioHint } from "../imageImport";
 import { downloadBlob, exportProjectZip, slugify } from "../export/bundle";
@@ -80,6 +80,40 @@ export default function Editor() {
     setThumbs(map);
     return () => { Object.values(map).forEach((u) => URL.revokeObjectURL(u)); };
   }, [list]);
+
+  // Название тура — обязательное и уникальное. Черновик отдельно от БД,
+  // чтобы не откатывать курсор на каждое нажатие; проверка по потере фокуса.
+  const [titleDraft, setTitleDraft] = useState("");
+  useEffect(() => { if (project) setTitleDraft(project.title); }, [project?.id]);
+
+  async function commitTitle() {
+    if (!project) return;
+    const trimmed = titleDraft.trim();
+    if (!trimmed) {
+      setTitleDraft(project.title);
+      setNote("Название тура не может быть пустым.");
+      return;
+    }
+    if (trimmed === project.title) return;
+    const unique = await uniqueProjectTitle(trimmed, projectId);
+    if (unique !== trimmed) {
+      setTitleDraft(project.title);
+      setNote(`Тур с названием «${trimmed}» уже есть — выберите другое название.`);
+      return;
+    }
+    await db.projects.update(projectId, { title: trimmed, updatedAt: new Date().toISOString() });
+  }
+
+  // Функция против "пустых болванок": если тур так и остался без единой
+  // панорамы, при выходе спрашиваем — удалить черновик или оставить.
+  async function handleBack() {
+    if (list.length === 0) {
+      if (window.confirm(`Тур «${project?.title ?? ""}» пока пуст — удалить его, чтобы не копились пустые заготовки?`)) {
+        await deleteProject(projectId);
+      }
+    }
+    nav("/");
+  }
 
   async function touch() {
     await db.projects.update(projectId, { updatedAt: new Date().toISOString() });
@@ -354,11 +388,13 @@ export default function Editor() {
 
   return (
     <div>
-      <button className="back-link" onClick={() => nav("/")}>← Все туры</button>
+      <button className="back-link" onClick={handleBack}>← Все туры</button>
       <input
         type="text"
-        value={project.title}
-        onChange={(e) => db.projects.update(projectId, { title: e.target.value, updatedAt: new Date().toISOString() })}
+        value={titleDraft}
+        onChange={(e) => setTitleDraft(e.target.value)}
+        onBlur={commitTitle}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
         style={{ fontWeight: 800, fontSize: 22, padding: "8px 10px", marginBottom: 14 }}
         aria-label="Название тура"
       />

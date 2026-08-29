@@ -49,4 +49,8 @@ export interface TourManifest {
   // Функция «Брендинг тура» (src/branding.ts) — логотип (data: URI) и подпись
   // в углу плеера. Присутствует, только если функция была включена при экспорте.
   branding?: { logo?: string; text?: string };
+  // Функция «RU/EN тур» (src/appLanguage.ts) — язык приложения на момент
+  // экспорта. Плеер сам язык не переключает — просто показывает titleEn/
+  // labelEn/noteEn, если lang === "en" и они заданы, иначе русский текст.
+  lang?: "ru" | "en";
 }

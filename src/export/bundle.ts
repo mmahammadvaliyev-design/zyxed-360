@@ -12,6 +12,7 @@ import { db, type Hotspot } from "../db";
 import type { SceneMeta, TourManifest } from "../engine/types";
 import { getFeatureSnapshot, isFeatureEnabled } from "../features";
 import { getBranding } from "../branding";
+import { getAppLanguage } from "../appLanguage";
 
 async function fetchBinary(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
@@ -53,13 +54,13 @@ async function collectPlayerAssets(): Promise<{ js: string[]; css: string[]; ass
   return { js, css, assets };
 }
 
-function buildIndexHtml(opts: { js: string[]; css: string[]; dataScript: string }): string {
+function buildIndexHtml(opts: { js: string[]; css: string[]; dataScript: string; lang: "ru" | "en" }): string {
   const cssLinks = opts.css.map((href) => `    <link rel="stylesheet" href="./${href}" />`).join("\n");
   // Classic-скрипт (без type="module") в head выполнился бы до появления
   // #app в body — ставим в конец body, как исходник player/index.html.
   const jsScripts = opts.js.map((src) => `    <script src="./${src}"></script>`).join("\n");
   return `<!doctype html>
-<html lang="ru">
+<html lang="${opts.lang}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
@@ -138,6 +139,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     images,
     features: getFeatureSnapshot(),
     branding: isFeatureEnabled("branding") ? getBranding() : undefined,
+    lang: getAppLanguage(),
   };
 
   const { js, css, assets } = await collectPlayerAssets();
@@ -145,7 +147,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
   // случайное "</script>" в подписи не сломало встроенный JSON и не превратилось
   // в разметку/скрипт на странице тура.
   const dataScript = `<script id="tour-data" type="application/json">${JSON.stringify(manifest).replace(/</g, "\\u003c")}</script>`;
-  const indexHtml = buildIndexHtml({ js, css, dataScript });
+  const indexHtml = buildIndexHtml({ js, css, dataScript, lang: manifest.lang ?? "ru" });
 
   const files: Record<string, Uint8Array> = { "index.html": new TextEncoder().encode(indexHtml), ...assets };
 

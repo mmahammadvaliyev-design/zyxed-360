@@ -4,7 +4,7 @@
 // продолжить работу над туром на другом устройстве или в другом браузере,
 // а не только посмотреть уже опубликованный результат.
 import { unzipSync, zipSync } from "fflate";
-import { createProject, db, uid, type Hotspot, type Project } from "../db";
+import { createProject, db, uid, uniqueProjectTitle, type Hotspot, type Project } from "../db";
 import { slugify } from "./bundle";
 
 const BACKUP_VERSION = 1;
@@ -92,7 +92,8 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
   if (manifest.version !== BACKUP_VERSION) throw new Error("Неподдерживаемая версия резервной копии.");
   if (!manifest.scenes?.length) throw new Error("В резервной копии нет панорам.");
 
-  const project = await createProject(manifest.title || "Импортированный тур");
+  const title = await uniqueProjectTitle(manifest.title || "Импортированный тур");
+  const project = await createProject(title);
   const idMap = new Map(manifest.scenes.map((s) => [s.id, uid()]));
 
   for (const s of manifest.scenes) {

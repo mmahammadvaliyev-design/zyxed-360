@@ -35,7 +35,6 @@ app.innerHTML = `
         <button class="pano-btn" id="btn-rotate" title="Автоповорот">↻</button>
         <button class="pano-btn" id="btn-gyro" title="Поворот по наклону телефона" hidden>🧭</button>
         <button class="pano-btn" id="btn-fs" title="Во весь экран" hidden>⤢</button>
-        <button class="pano-btn" id="btn-lang" title="Язык / Language" hidden>RU</button>
       </div>
     </div>
     <div class="pano-strip" data-hud id="strip" hidden></div>
@@ -56,7 +55,6 @@ const btnSlideshow = document.getElementById("btn-slideshow") as HTMLButtonEleme
 const btnRotate = document.getElementById("btn-rotate") as HTMLButtonElement;
 const btnGyro = document.getElementById("btn-gyro") as HTMLButtonElement;
 const btnFs = document.getElementById("btn-fs") as HTMLButtonElement;
-const btnLang = document.getElementById("btn-lang") as HTMLButtonElement;
 
 // Без этого клик по кнопкам интерфейса перехватывается жестом на панораме:
 // wrapEl.setPointerCapture() ниже переносит последующий click на себя же,
@@ -93,8 +91,10 @@ const drag = { active: false, x: 0, y: 0, moved: 0, pinch: 0 };
 let downTarget: HTMLElement | null = null;
 let loadToken = 0;
 let noteEl: HTMLElement | null = null;
-// Функция «RU/EN тур»: если для текущего языка нет перевода — молча
-// показываем русский, а не пусто.
+// Функция «RU/EN тур»: язык — не переключатель внутри тура, а то, что было
+// выбрано в приложении на момент экспорта (manifest.lang, см. bundle.ts).
+// Если для этого языка нет перевода конкретного поля — молча показываем
+// русский, а не пусто.
 let lang: "ru" | "en" = "ru";
 
 function currentScene(): SceneMeta | undefined {
@@ -210,19 +210,6 @@ function renderStrip() {
     chip.addEventListener("click", () => goTo(i));
     stripEl.appendChild(chip);
   });
-}
-
-// Функция «RU/EN тур»: переключили язык — перерисовываем то, что уже
-// на экране (заголовок, полоску сцен, подписи точек). Заметку на всякий
-// случай закрываем — иначе в ней остался бы текст на старом языке.
-function refreshLangDisplay() {
-  const scene = currentScene();
-  if (scene) {
-    titleEl.textContent = sceneTitle(scene);
-    renderHotspots(scene);
-    renderStrip();
-  }
-  closeNote();
 }
 
 async function goTo(index: number) {
@@ -384,12 +371,6 @@ btnSlideshow.addEventListener("click", () => {
   }
 });
 
-btnLang.addEventListener("click", () => {
-  lang = lang === "ru" ? "en" : "ru";
-  btnLang.textContent = lang === "ru" ? "RU" : "EN";
-  refreshLangDisplay();
-});
-
 if (GYRO_SUPPORTED) {
   btnGyro.hidden = false;
   let orientReceived = false;
@@ -523,7 +504,7 @@ function startTour(data: TourManifest) {
   if (!scenes.length) throw new Error("empty");
   topBar.hidden = false;
   if (manifest.features?.slideshow && scenes.length > 1) btnSlideshow.hidden = false;
-  if (manifest.features?.i18n) btnLang.hidden = false;
+  lang = manifest.lang === "en" ? "en" : "ru";
   // Функция «Брендинг тура»: логотип/подпись присутствуют в манифесте,
   // только если функция была включена на момент экспорта (см. bundle.ts).
   const brand = manifest.branding;

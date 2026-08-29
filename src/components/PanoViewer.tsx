@@ -18,6 +18,7 @@ import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../ima
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
 import { useFeature } from "../features";
 import { useBranding } from "../branding";
+import { useAppLanguage } from "../appLanguage";
 
 interface Props {
   scenes: Scene[]; // весь тур, по порядку
@@ -50,7 +51,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const brandingEnabled = useFeature("branding");
   const branding = useBranding();
   const i18nEnabled = useFeature("i18n");
-  const [lang, setLang] = useState<"ru" | "en">("ru");
+  const lang = useAppLanguage();
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -549,11 +550,6 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           )}
           {canFullscreen && (
             <button className="pano-btn" onClick={toggleFullscreen} title="Во весь экран">{fullscreen ? "⤡" : "⤢"}</button>
-          )}
-          {i18nEnabled && (
-            <button className="pano-btn" onClick={() => setLang(lang === "ru" ? "en" : "ru")} title="Язык / Language">
-              {lang === "ru" ? "RU" : "EN"}
-            </button>
           )}
           {editable && (
             <button className={`pano-btn${edit ? " on" : ""}`} onClick={() => { setEdit(!edit); setSelectedId(null); setPlacing(null); }} title="Редактировать переходы">✏️</button>
