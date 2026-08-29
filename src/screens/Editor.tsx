@@ -112,9 +112,14 @@ export default function Editor() {
 
   // Функция «Линейная цепочка переходов»: то же, что «по кругу», но без
   // замыкания — первая панорама без "предыдущей", последняя без "следующей".
+  // Кроме добавления недостающих переходов, снимаем замыкающую пару
+  // первая↔последняя, если она уже стоит (например, тур до этого был
+  // связан «по кругу» — иначе "обратная" ссылка так и осталась бы).
   async function linkInChain() {
     if (list.length < 2) return;
     setBusy("Расставляю переходы…");
+    const firstId = list[0].id;
+    const lastId = list[list.length - 1].id;
     for (let i = 0; i < list.length; i++) {
       const scene = list[i];
       const next = i < list.length - 1 ? list[i + 1] : null;
@@ -123,7 +128,16 @@ export default function Editor() {
       if (next) wanted.push({ id: uid(), yaw: rad(90), pitch: rad(-8), label: next.title, targetId: next.id });
       if (prev) wanted.push({ id: uid(), yaw: rad(-90), pitch: rad(-8), label: prev.title, targetId: prev.id });
       const add = wanted.filter((w) => !scene.hotspots.some((h) => h.targetId === w.targetId));
-      if (add.length) await db.scenes.update(scene.id, { hotspots: [...scene.hotspots, ...add] });
+      let hotspots = scene.hotspots;
+      // При ровно двух панорамах "следующая" и "последняя" — одна и та же
+      // сцена, замыкающую пару снимать не с чего.
+      if (list.length > 2) {
+        if (i === 0) hotspots = hotspots.filter((h) => h.targetId !== lastId);
+        if (i === list.length - 1) hotspots = hotspots.filter((h) => h.targetId !== firstId);
+      }
+      if (add.length || hotspots.length !== scene.hotspots.length) {
+        await db.scenes.update(scene.id, { hotspots: [...hotspots, ...add] });
+      }
     }
     await touch();
     setBusy(null);
