@@ -164,7 +164,11 @@ async function goTo(index: number) {
   veil.classList.add("on");
   veilText.textContent = "Загружаю панораму…";
   try {
-    const res = await fetch(`./images/${scene.id}.jpg`);
+    // Встроенные data: URI из манифеста грузятся через тот же fetch() без
+    // ограничений file://; внешний images/<id>.jpg — запасной путь, если
+    // манифест почему-то пришёл без картинок (см. readEmbeddedManifest).
+    const src = manifest.images?.[scene.id] ?? `./images/${scene.id}.jpg`;
+    const res = await fetch(src);
     if (!res.ok) throw new Error(String(res.status));
     const blob = await res.blob();
     const bmp = await loadBitmap(blob);
@@ -393,19 +397,40 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // ── Старт: подгружаем данные тура ─────────────────────────────────
-fetch("./data.json")
-  .then((r) => {
-    if (!r.ok) throw new Error(String(r.status));
-    return r.json();
-  })
-  .then((data: TourManifest) => {
-    manifest = data;
-    document.title = manifest.title || "360°-тур";
-    scenes = [...manifest.scenes].sort((a, b) => a.order - b.order);
-    if (!scenes.length) throw new Error("empty");
-    topBar.hidden = false;
-    goTo(0);
-  })
-  .catch(() => {
-    veilText.textContent = "Не удалось загрузить данные тура (data.json).";
-  });
+// Экспорт встраивает манифест прямо в страницу (id="tour-data") — так пакет
+// открывается и двойным кликом с диска, без запроса data.json, который
+// браузеры блокируют для файлов file://. Если тега нет (например, эту
+// страницу открыли отдельно от экспорта), пробуем ./data.json как раньше.
+function readEmbeddedManifest(): TourManifest | null {
+  const el = document.getElementById("tour-data");
+  if (!el?.textContent) return null;
+  try {
+    return JSON.parse(el.textContent) as TourManifest;
+  } catch {
+    return null;
+  }
+}
+
+function startTour(data: TourManifest) {
+  manifest = data;
+  document.title = manifest.title || "360°-тур";
+  scenes = [...manifest.scenes].sort((a, b) => a.order - b.order);
+  if (!scenes.length) throw new Error("empty");
+  topBar.hidden = false;
+  goTo(0);
+}
+
+const embedded = readEmbeddedManifest();
+if (embedded) {
+  startTour(embedded);
+} else {
+  fetch("./data.json")
+    .then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    })
+    .then(startTour)
+    .catch(() => {
+      veilText.textContent = "Не удалось загрузить данные тура (data.json).";
+    });
+}

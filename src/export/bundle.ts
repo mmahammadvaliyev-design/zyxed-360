@@ -1,6 +1,9 @@
 // Сборка публикуемого тура: берём уже собранный автономный плеер (public/player,
-// npm run build:player), докладываем данные тура и картинки — и всё это в один ZIP.
-// Результат можно залить на любой статический хостинг: GitHub Pages, Netlify, Vercel.
+// npm run build:player), встраиваем данные тура и картинки прямо в его index.html —
+// и всё это в один ZIP. Результат можно залить на любой статический хостинг
+// (GitHub Pages, Netlify, Vercel), а можно и просто открыть index.html двойным
+// кликом с диска: данные не запрашиваются отдельным fetch(), которые браузеры
+// блокируют для локальных файлов по file://.
 import { zipSync } from "fflate";
 import { db } from "../db";
 import type { SceneMeta, TourManifest } from "../engine/types";
@@ -11,9 +14,18 @@ async function fetchBinary(url: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-// Разбираем index.html плеера, чтобы найти его файлы — так не важно, как Vite
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Не удалось прочитать изображение"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Разбираем index.html плеера, чтобы найти его js/css файлы — так не важно, как Vite
 // назвал хэшированные assets/*.js при сборке.
-async function collectPlayerFiles(): Promise<Record<string, Uint8Array>> {
+async function collectPlayerAssets(): Promise<{ html: string; assets: Record<string, Uint8Array> }> {
   const base = "./player/";
   const htmlRes = await fetch(base + "index.html");
   if (!htmlRes.ok) {
@@ -26,9 +38,9 @@ async function collectPlayerFiles(): Promise<Record<string, Uint8Array>> {
     const src = el.getAttribute("src") || el.getAttribute("href");
     if (src && !/^(https?:)?\/\//.test(src)) refs.add(src.replace(/^\.\//, ""));
   });
-  const files: Record<string, Uint8Array> = { "index.html": new TextEncoder().encode(html) };
-  for (const ref of refs) files[ref] = await fetchBinary(base + ref);
-  return files;
+  const assets: Record<string, Uint8Array> = {};
+  for (const ref of refs) assets[ref] = await fetchBinary(base + ref);
+  return { html, assets };
 }
 
 function slugify(s: string): string {
@@ -48,6 +60,9 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
   const scenes = await db.scenes.where("projectId").equals(projectId).sortBy("order");
   if (!scenes.length) throw new Error("В туре нет ни одной панорамы — экспортировать нечего.");
 
+  const images: Record<string, string> = {};
+  for (const s of scenes) images[s.id] = await blobToDataUrl(s.image);
+
   const manifest: TourManifest = {
     title: project.title,
     scenes: scenes.map(
@@ -63,13 +78,17 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
         hotspots: s.hotspots,
       }),
     ),
+    images,
   };
 
-  const files = await collectPlayerFiles();
-  files["data.json"] = new TextEncoder().encode(JSON.stringify(manifest));
-  for (const s of scenes) {
-    files[`images/${s.id}.jpg`] = new Uint8Array(await s.image.arrayBuffer());
-  }
+  const { html, assets } = await collectPlayerAssets();
+  // Заголовки/подписи переходов — пользовательский текст; экранируем "<", чтобы
+  // случайное "</script>" в подписи не сломало встроенный JSON и не превратилось
+  // в разметку/скрипт на странице тура.
+  const dataScript = `<script id="tour-data" type="application/json">${JSON.stringify(manifest).replace(/</g, "\\u003c")}</script>`;
+  const withData = html.replace("</head>", `${dataScript}</head>`);
+
+  const files: Record<string, Uint8Array> = { "index.html": new TextEncoder().encode(withData), ...assets };
 
   const zipped = zipSync(files, { level: 6 });
   return { blob: new Blob([zipped], { type: "application/zip" }), filename: `${slugify(project.title)}.zip` };

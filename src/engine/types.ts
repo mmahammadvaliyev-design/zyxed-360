@@ -21,9 +21,13 @@ export interface SceneMeta {
   hotspots: Hotspot[];
 }
 
-// Манифест экспортированного тура (data.json рядом с плеером). Картинка сцены —
-// файл images/<id>.jpg рядом с манифестом.
+// Манифест экспортированного тура. Встраивается прямо в index.html плеера
+// (id="tour-data"), картинки — как data: URI в images[sceneId]: так пакет
+// открывается и двойным кликом с диска (браузеры блокируют fetch() локальных
+// файлов по file://), и с любого статического хостинга — без отдельного
+// запроса data.json/картинок.
 export interface TourManifest {
   title: string;
   scenes: SceneMeta[];
+  images: Record<string, string>;
 }
