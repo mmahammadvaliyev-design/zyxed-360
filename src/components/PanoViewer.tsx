@@ -43,7 +43,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [toast, setToast] = useState<string | null>(null);
   const [noteHotspot, setNoteHotspot] = useState<Hotspot | null>(null);
   const [notePhotoUrl, setNotePhotoUrl] = useState<string | null>(null);
+  const [slideshow, setSlideshow] = useState(false);
   const richNotes = useFeature("richNotes");
+  const slideshowEnabled = useFeature("slideshow");
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,6 +65,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   scenesRef.current = scenes;
   const currentIdRef = useRef(currentId);
   currentIdRef.current = currentId;
+  // goTo сравнивает id с currentId из своего замыкания — эффект автотура
+  // ниже создаётся один раз на весь показ (deps: [slideshow]) и звал бы
+  // одну и ту же устаревшую версию goTo вечно; храним свежую в рефе.
+  const goToRef = useRef<(id: string) => void>(() => {});
 
   const scene = scenes.find((s) => s.id === currentId) ?? scenes[0];
   const sceneIndex = scenes.findIndex((s) => s.id === scene?.id);
@@ -84,6 +90,22 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setNotePhotoUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [noteHotspot]);
+
+  // Функция «Автотур»: пока включено, по таймеру переходим на следующую
+  // панораму по кругу — рефы вместо scenes/currentId в зависимостях,
+  // чтобы не пересоздавать интервал на каждый шаг.
+  const SLIDESHOW_INTERVAL = 6000;
+  useEffect(() => {
+    if (!slideshow) return;
+    const id = window.setInterval(() => {
+      const list = scenesRef.current;
+      if (list.length < 2) return;
+      const idx = list.findIndex((s) => s.id === currentIdRef.current);
+      if (idx < 0) return;
+      goToRef.current(list[(idx + 1) % list.length].id);
+    }, SLIDESHOW_INTERVAL);
+    return () => window.clearInterval(id);
+  }, [slideshow]);
 
   // ── Рендер-цикл ─────────────────────────────────────────────────
   useEffect(() => {
@@ -404,6 +426,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setNoteHotspot(null);
     setCurrentId(id);
   }
+  goToRef.current = goTo;
 
   function activateHotspot(h: Hotspot) {
     if (edit) { setSelectedId(h.id); return; }
@@ -462,6 +485,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           <span className="pano-sub">{sceneIndex + 1} / {scenes.length}</span>
         </div>
         <div className="pano-tools">
+          {slideshowEnabled && scenes.length > 1 && (
+            <button className={`pano-btn${slideshow ? " on" : ""}`} onClick={() => setSlideshow(!slideshow)} title="Автотур (слайд-шоу)">▶</button>
+          )}
           <button className={`pano-btn${autorotate ? " on" : ""}`} onClick={() => { setAutorotate(!autorotate); setGyro(false); }} title="Автоповорот">↻</button>
           {GYRO_SUPPORTED && (
             <button className={`pano-btn${gyro ? " on" : ""}`} onClick={toggleGyro} title="Поворот по наклону телефона">🧭</button>

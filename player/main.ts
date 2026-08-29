@@ -31,6 +31,7 @@ app.innerHTML = `
     <div class="pano-top" data-hud id="top" hidden>
       <div class="pano-title"><b id="title"></b><span class="pano-sub" id="sub"></span></div>
       <div class="pano-tools">
+        <button class="pano-btn" id="btn-slideshow" title="Автотур (слайд-шоу)" hidden>▶</button>
         <button class="pano-btn" id="btn-rotate" title="Автоповорот">↻</button>
         <button class="pano-btn" id="btn-gyro" title="Поворот по наклону телефона" hidden>🧭</button>
         <button class="pano-btn" id="btn-fs" title="Во весь экран" hidden>⤢</button>
@@ -50,6 +51,7 @@ const titleEl = document.getElementById("title")!;
 const subEl = document.getElementById("sub")!;
 const stripEl = document.getElementById("strip")!;
 const toastEl = document.getElementById("toast")!;
+const btnSlideshow = document.getElementById("btn-slideshow") as HTMLButtonElement;
 const btnRotate = document.getElementById("btn-rotate") as HTMLButtonElement;
 const btnGyro = document.getElementById("btn-gyro") as HTMLButtonElement;
 const btnFs = document.getElementById("btn-fs") as HTMLButtonElement;
@@ -339,6 +341,20 @@ btnRotate.addEventListener("click", () => {
   btnRotate.classList.toggle("on", autorotate);
 });
 
+// Функция «Автотур»: по таймеру переходим на следующую панораму по кругу.
+const SLIDESHOW_INTERVAL = 6000;
+let slideshowTimer = 0;
+btnSlideshow.addEventListener("click", () => {
+  const on = !btnSlideshow.classList.contains("on");
+  btnSlideshow.classList.toggle("on", on);
+  window.clearInterval(slideshowTimer);
+  if (on) {
+    slideshowTimer = window.setInterval(() => {
+      if (scenes.length > 1) goTo((currentIndex + 1) % scenes.length);
+    }, SLIDESHOW_INTERVAL);
+  }
+});
+
 if (GYRO_SUPPORTED) {
   btnGyro.hidden = false;
   let orientReceived = false;
@@ -471,6 +487,7 @@ function startTour(data: TourManifest) {
   scenes = [...manifest.scenes].sort((a, b) => a.order - b.order);
   if (!scenes.length) throw new Error("empty");
   topBar.hidden = false;
+  if (manifest.features?.slideshow && scenes.length > 1) btnSlideshow.hidden = false;
   goTo(0);
 }
 
