@@ -43,6 +43,13 @@ export const FEATURES: FeatureFlag[] = [
     defaultOn: false,
   },
   {
+    id: "qrCode",
+    label: "QR-код тура",
+    description:
+      "Кнопка «QR-код» в редакторе — вставляете ссылку на уже опубликованный тур (после загрузки экспорта на хостинг), получаете QR-код для печати в отчёте или на объекте. Генерируется прямо в браузере, без сети.",
+    defaultOn: false,
+  },
+  {
     id: "projectBackup",
     label: "Резервная копия / перенос проекта",
     description:

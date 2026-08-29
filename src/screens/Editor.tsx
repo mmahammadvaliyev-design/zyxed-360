@@ -4,8 +4,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { db, uid, type Hotspot, type Scene } from "../db";
 import { DEFAULT_FOV, rad } from "../engine/pano";
 import { prepareImage, ratioHint } from "../imageImport";
-import { downloadBlob, exportProjectZip } from "../export/bundle";
+import { downloadBlob, exportProjectZip, slugify } from "../export/bundle";
 import { exportProjectBackup } from "../export/backup";
+import { renderQrToCanvas } from "../qr";
 import PanoViewer from "../components/PanoViewer";
 import { useEffect } from "react";
 import { useFeature } from "../features";
@@ -36,6 +37,11 @@ export default function Editor() {
   const fileRef = useRef<HTMLInputElement>(null);
   const linearChain = useFeature("linearChain");
   const projectBackup = useFeature("projectBackup");
+  const qrCode = useFeature("qrCode");
+  const [qrUrl, setQrUrl] = useState("");
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [hasQr, setHasQr] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -207,6 +213,31 @@ export default function Editor() {
     }
   }
 
+  // Функция «QR-код тура»: ссылку на опубликованный тур приложение само не
+  // знает (это внешний хостинг) — вводит пользователь, картинку рисуем
+  // прямо в браузере пакетом qrcode, без обращений в сеть.
+  async function generateQr() {
+    const url = qrUrl.trim();
+    const canvas = qrCanvasRef.current;
+    if (!url || !canvas) return;
+    setQrError(null);
+    try {
+      await renderQrToCanvas(canvas, url);
+      setHasQr(true);
+    } catch (e) {
+      setHasQr(false);
+      setQrError((e as Error).message);
+    }
+  }
+
+  function downloadQr() {
+    const canvas = qrCanvasRef.current;
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (blob) downloadBlob(blob, `${slugify(project?.title ?? "tour")}-qr.png`);
+    });
+  }
+
   const openScene = openId ? list.find((s) => s.id === openId) : null;
 
   if (project === undefined) return null;
@@ -263,6 +294,33 @@ export default function Editor() {
             <button className="ghost" disabled={!!busy} onClick={doExport}>⬇ Экспорт</button>
             {projectBackup && <button className="ghost" disabled={!!busy} onClick={doBackupExport} title="Полная копия проекта — для переноса или бэкапа">💾 Копия</button>}
           </div>
+
+          {qrCode && (
+            <div className="card">
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>QR-код тура</div>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 8, lineHeight: 1.5 }}>
+                Вставьте ссылку на уже опубликованный тур (после того как загрузите архив «Экспорт» на хостинг) — получите QR-код для печати в отчёте или на объекте.
+              </p>
+              <input
+                type="text"
+                placeholder="https://..."
+                value={qrUrl}
+                onChange={(e) => { setQrUrl(e.target.value); setHasQr(false); }}
+              />
+              <button className="ghost" style={{ marginTop: 8 }} disabled={!qrUrl.trim()} onClick={generateQr}>
+                Сгенерировать QR
+              </button>
+              {qrError && <div style={{ color: "var(--red)", marginTop: 6, fontSize: 13 }}>{qrError}</div>}
+              <div style={{ marginTop: 10, textAlign: "center" }}>
+                <canvas ref={qrCanvasRef} style={{ display: hasQr ? "inline-block" : "none", maxWidth: "100%" }} />
+              </div>
+              {hasQr && (
+                <button className="ghost small" style={{ marginTop: 8 }} onClick={downloadQr}>
+                  ⬇ Скачать PNG
+                </button>
+              )}
+            </div>
+          )}
 
           <h2>Панорамы · {list.length} шт · {sizeMb(list)} МБ</h2>
           {list.map((s, i) => (
