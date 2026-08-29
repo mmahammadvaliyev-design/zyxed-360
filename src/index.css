@@ -7,9 +7,12 @@
   --border: #e5e6f1;
   --text: #14162a;
   --muted: #6b7189;
-  --accent: #6d28d9;
-  --accent-soft: #f2ecff;
-  --grad: linear-gradient(135deg, #5b4bff 0%, #7c3aed 48%, #ec4899 100%);
+  /* Палитра сайта zyxed.com: почти монохром (навы/чёрный + белый), один
+     фирменный зелёный — как их единственный акцент "живого" состояния. */
+  --accent: #0a1420;
+  --accent-soft: #e7eaf0;
+  --live: #4ee08a;
+  --grad: linear-gradient(135deg, #10192b 0%, #04080f 100%);
   --red: #dc2626;
   --red-soft: #fdeaea;
   --shadow-sm: 0 1px 2px rgba(20, 22, 42, 0.05);
@@ -61,7 +64,7 @@ button {
 }
 button:hover { filter: brightness(0.97); }
 button:active { transform: translateY(1px); }
-button.primary { background: var(--grad); color: #fff; font-weight: 600; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.32); }
+button.primary { background: var(--grad); color: #fff; font-weight: 600; box-shadow: 0 4px 14px rgba(4, 8, 15, 0.35); }
 button.primary:hover { filter: brightness(1.06); }
 button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
 button.small { padding: 7px 12px; font-size: 13px; }

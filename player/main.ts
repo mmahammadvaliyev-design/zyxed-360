@@ -99,11 +99,6 @@ function pinchDistance(): number {
   return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
 }
 
-const SPOT_ICON_LINK =
-  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M8 5l8 7-8 7" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const SPOT_ICON_NOTE =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2"/><line x1="12" y1="11" x2="12" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="8" r="1.15" fill="#fff"/></svg>';
-
 function renderHotspots(scene: SceneMeta) {
   hotspotEls.forEach((el) => el.remove());
   hotspotEls.clear();
@@ -114,7 +109,7 @@ function renderHotspots(scene: SceneMeta) {
     btn.dataset.spot = h.id;
     btn.style.visibility = "hidden";
     btn.title = h.label;
-    btn.innerHTML = `<span class="pano-spot-dot">${h.targetId ? SPOT_ICON_LINK : SPOT_ICON_NOTE}</span><span class="pano-spot-label"></span>`;
+    btn.innerHTML = `<span class="pano-spot-dot"></span><span class="pano-spot-label"></span>`;
     (btn.querySelector(".pano-spot-label") as HTMLElement).textContent = h.label;
     btn.addEventListener("click", (e) => {
       if ((e as MouseEvent).detail === 0) activateHotspot(h);
