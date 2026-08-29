@@ -488,6 +488,25 @@ function startTour(data: TourManifest) {
   if (!scenes.length) throw new Error("empty");
   topBar.hidden = false;
   if (manifest.features?.slideshow && scenes.length > 1) btnSlideshow.hidden = false;
+  // Функция «Брендинг тура»: логотип/подпись присутствуют в манифесте,
+  // только если функция была включена на момент экспорта (см. bundle.ts).
+  const brand = manifest.branding;
+  if (brand?.logo || brand?.text) {
+    const el = document.createElement("div");
+    el.className = "pano-brand";
+    if (brand.logo) {
+      const img = document.createElement("img");
+      img.src = brand.logo;
+      img.alt = "";
+      el.appendChild(img);
+    }
+    if (brand.text) {
+      const span = document.createElement("span");
+      span.textContent = brand.text;
+      el.appendChild(span);
+    }
+    wrapEl.appendChild(el);
+  }
   goTo(0);
 }
 

@@ -8,6 +8,7 @@ export type { Bitmap };
 const MAX_WIDTH = 4096; // шире хранить незачем — на экране разницы не видно
 const THUMB_WIDTH = 480;
 const NOTE_PHOTO_MAX_WIDTH = 1600; // фото в карточке заметки, не полноэкранная панорама
+const LOGO_MAX_WIDTH = 240; // маленький водяной знак в углу плеера
 
 export interface PreparedImage {
   image: Blob;
@@ -65,6 +66,25 @@ export async function prepareHotspotPhoto(file: Blob): Promise<Blob> {
     if (width <= NOTE_PHOTO_MAX_WIDTH) return file;
     const h = Math.max(1, Math.round((NOTE_PHOTO_MAX_WIDTH * height) / width));
     return await canvasToBlob(scaleTo(bmp, NOTE_PHOTO_MAX_WIDTH, h), 0.85);
+  } finally {
+    closeBitmap(bmp);
+  }
+}
+
+// Логотип для функции «Брендинг тура» — маленькая картинка, храним как
+// data: URI (в localStorage, см. src/branding.ts), не Blob. PNG — чтобы не
+// потерять прозрачность фона у типичного логотипа.
+export async function prepareBrandingLogo(file: Blob): Promise<string> {
+  const bmp = await loadBitmap(file);
+  const { width, height } = bitmapSize(bmp);
+  if (!width || !height) {
+    closeBitmap(bmp);
+    throw new Error("Пустое изображение");
+  }
+  try {
+    const w = Math.min(width, LOGO_MAX_WIDTH);
+    const h = Math.max(1, Math.round((w * height) / width));
+    return scaleTo(bmp, w, h).toDataURL("image/png");
   } finally {
     closeBitmap(bmp);
   }

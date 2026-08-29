@@ -10,7 +10,8 @@
 import { zipSync } from "fflate";
 import { db, type Hotspot } from "../db";
 import type { SceneMeta, TourManifest } from "../engine/types";
-import { getFeatureSnapshot } from "../features";
+import { getFeatureSnapshot, isFeatureEnabled } from "../features";
+import { getBranding } from "../branding";
 
 async function fetchBinary(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
@@ -133,6 +134,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     ),
     images,
     features: getFeatureSnapshot(),
+    branding: isFeatureEnabled("branding") ? getBranding() : undefined,
   };
 
   const { js, css, assets } = await collectPlayerAssets();

@@ -17,6 +17,7 @@ import {
 import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
 import { useFeature } from "../features";
+import { useBranding } from "../branding";
 
 interface Props {
   scenes: Scene[]; // весь тур, по порядку
@@ -46,6 +47,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [slideshow, setSlideshow] = useState(false);
   const richNotes = useFeature("richNotes");
   const slideshowEnabled = useFeature("slideshow");
+  const brandingEnabled = useFeature("branding");
+  const branding = useBranding();
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -626,6 +629,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             </div>
             {noteHotspot.note && <div className="pano-note-text">{noteHotspot.note}</div>}
           </div>
+        </div>
+      )}
+
+      {brandingEnabled && (branding.logo || branding.text) && (
+        <div className="pano-brand">
+          {branding.logo && <img src={branding.logo} alt="" />}
+          {branding.text && <span>{branding.text}</span>}
         </div>
       )}
 

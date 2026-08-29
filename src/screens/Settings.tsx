@@ -1,5 +1,8 @@
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FEATURES, setFeatureEnabled, useFeature, type FeatureFlag } from "../features";
+import { setBranding, useBranding } from "../branding";
+import { prepareBrandingLogo } from "../imageImport";
 
 function FeatureRow({ feature }: { feature: FeatureFlag }) {
   const on = useFeature(feature.id);
@@ -22,8 +25,66 @@ function FeatureRow({ feature }: { feature: FeatureFlag }) {
   );
 }
 
+// Настройка логотипа/подписи для функции «Брендинг тура» — показывается
+// сразу под её тумблером, пока он включён.
+function BrandingEditor() {
+  const branding = useBranding();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function pickLogo(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const logo = await prepareBrandingLogo(file);
+      setBranding({ logo });
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: -5, marginBottom: 11 }}>
+      <div className="row" style={{ gap: 10, alignItems: "center" }}>
+        <div
+          style={{
+            width: 56, height: 56, borderRadius: 10, flexShrink: 0,
+            background: "var(--surface-2)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+          }}
+        >
+          {branding.logo ? (
+            <img src={branding.logo} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+          ) : (
+            <span className="muted" style={{ fontSize: 10 }}>нет лого</span>
+          )}
+        </div>
+        <div className="grow">
+          <label className="ghost small" style={{ cursor: "pointer", display: "inline-block" }}>
+            {busy ? "Загружаю…" : branding.logo ? "Заменить логотип" : "+ Логотип"}
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pickLogo(e.target.files?.[0])} />
+          </label>
+          {branding.logo && (
+            <button className="ghost small" style={{ marginLeft: 6 }} onClick={() => setBranding({ logo: undefined })}>
+              ✕ убрать
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        type="text"
+        placeholder="Подпись (необязательно) — например «ZYXED Engineering»"
+        value={branding.text ?? ""}
+        onChange={(e) => setBranding({ text: e.target.value })}
+        style={{ marginTop: 10 }}
+      />
+    </div>
+  );
+}
+
 export default function Settings() {
   const nav = useNavigate();
+  const brandingOn = useFeature("branding");
   return (
     <div>
       <button className="back-link" onClick={() => nav("/")}>← Мои туры</button>
@@ -34,7 +95,10 @@ export default function Settings() {
         которые вы экспортируете после этого.
       </p>
       {FEATURES.map((f) => (
-        <FeatureRow key={f.id} feature={f} />
+        <div key={f.id}>
+          <FeatureRow feature={f} />
+          {f.id === "branding" && brandingOn && <BrandingEditor />}
+        </div>
       ))}
     </div>
   );

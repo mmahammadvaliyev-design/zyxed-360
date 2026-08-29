@@ -36,6 +36,13 @@ export const FEATURES: FeatureFlag[] = [
     defaultOn: false,
   },
   {
+    id: "branding",
+    label: "Брендинг тура",
+    description:
+      "Свой логотип и подпись в углу опубликованного тура (и в предпросмотре) — настраивается в этих же настройках, одна пара логотип+подпись на все туры.",
+    defaultOn: false,
+  },
+  {
     id: "projectBackup",
     label: "Резервная копия / перенос проекта",
     description:

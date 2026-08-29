@@ -161,6 +161,23 @@
 .pano-note-close:hover { opacity: 1; }
 .pano-note-text { font-size: 13px; line-height: 1.55; color: rgba(255, 255, 255, 0.82); white-space: pre-wrap; }
 
+/* Функция «Брендинг тура»: маленький водяной знак в углу — над полоской
+   сцен (если она есть), чтобы не перекрывать чипы. pointer-events:none —
+   это просто подпись, не должна мешать вращению/тапам по панораме. */
+.pano-brand {
+  position: absolute; right: 12px; bottom: calc(74px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 6px;
+  max-width: 60%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(8, 14, 24, 0.55);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  z-index: 5;
+}
+.pano-brand img { height: 18px; width: auto; display: block; flex-shrink: 0; }
+.pano-brand span { font-size: 11px; color: rgba(255, 255, 255, 0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .pano-strip {
   position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; gap: 7px;
