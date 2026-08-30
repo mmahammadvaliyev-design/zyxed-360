@@ -9,6 +9,7 @@
     "build:player": "vite build --config vite.player.config.ts",
     "prebuild": "npm run build:player",
     "build": "tsc && vite build",
+    "postbuild": "node scripts/fix-offline-html.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
