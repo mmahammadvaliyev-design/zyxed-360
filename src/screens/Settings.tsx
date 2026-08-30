@@ -99,6 +99,13 @@ function LanguageSelector() {
           English
         </button>
       </div>
+      <p className="muted" style={{ marginTop: 10, marginBottom: 0, lineHeight: 1.5, fontSize: 13 }}>
+        Переключает только те панорамы и подписи переходов, где в редакторе
+        заполнено поле «English title» / «Label (English)». Пока оно пустое —
+        показывается русский текст, даже если выбран English: перевод нужно
+        вписать вручную для каждой панорамы/перехода, которые хотите показать
+        на английском.
+      </p>
     </div>
   );
 }
