@@ -539,7 +539,6 @@ export default function Editor() {
               scenes={list}
               onUpdateMapImage={updateMapImage}
               onUpdateScenePos={updateScenePos}
-              onOpenScene={setOpenId}
             />
           )}
 

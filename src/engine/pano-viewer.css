@@ -241,7 +241,7 @@
 .pano-map-pin {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 26px; height: 26px;
+  width: 34px; height: 34px;
   border-radius: 50%;
   background: rgba(8, 14, 24, 0.75);
   border: 2px solid #fff;
@@ -252,13 +252,12 @@
 .pano-map-pin::before {
   content: "";
   position: absolute; inset: 0; margin: auto;
-  width: 8px; height: 8px;
+  width: 10px; height: 10px;
   border-radius: 50%;
   background: #4ee08a;
 }
-.pano-map-pin.on { background: #4ee08a; border-color: #fff; }
+.pano-map-pin.on { background: #4ee08a; border-color: #fff; box-shadow: 0 3px 14px rgba(78, 224, 138, 0.55); }
 .pano-map-pin.on::before { background: #04080f; }
-.pano-map-pin.dragging { z-index: 2; cursor: grabbing; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6); }
 .pano-map-pin-label {
   position: absolute;
   top: calc(100% + 4px); left: 50%;
@@ -274,4 +273,40 @@
 .pano-map-close {
   position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px;
   z-index: 21;
+}
+
+/* Всегда видимая миниатюра карты — полный план открывается только по клику
+   (кнопке «развернуть»), сама миниатюра — не редактируемая, только точки
+   для ориентира. Скрыта в режиме редактирования переходов (там всё равно
+   открыта панель редактирования снизу, места нет) и пока открыт полный вид. */
+.pano-map-mini {
+  position: absolute; left: 12px; bottom: calc(74px + env(safe-area-inset-bottom));
+  width: 112px; height: 78px;
+  padding: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(8, 14, 24, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  z-index: 6;
+}
+.pano-map-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pano-map-mini-pin {
+  position: absolute;
+  width: 7px; height: 7px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #4ee08a;
+  border: 1px solid #fff;
+}
+.pano-map-mini-pin.on { background: #fff; }
+.pano-map-mini-expand {
+  position: absolute; right: 4px; bottom: 4px;
+  width: 20px; height: 20px;
+  border-radius: 6px;
+  background: rgba(4, 6, 12, 0.75);
+  color: #fff;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
 }

@@ -87,6 +87,34 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   scenesRef.current = scenes;
   const currentIdRef = useRef(currentId);
   currentIdRef.current = currentId;
+  // Esc/аппаратная кнопка «назад» должны закрывать самый верхний открытый
+  // слой (карту → карточку заметки → режим расстановки/выбранную точку),
+  // а не весь просмотрщик разом — иначе один Esc посреди работы с картой
+  // выкидывал из тура целиком. Слушатели ниже — с пустым списком
+  // зависимостей (вешаются один раз), поэтому читают состояние через рефы,
+  // не напрямую — тот же приём, что и с goToRef/scenesRef в этом файле.
+  const mapOpenRef = useRef(mapOpen);
+  mapOpenRef.current = mapOpen;
+  const noteHotspotRef = useRef(noteHotspot);
+  noteHotspotRef.current = noteHotspot;
+  const placingRef = useRef(placing);
+  placingRef.current = placing;
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Возвращает true, если что-то было открыто и теперь закрыто (Esc/назад
+  // «поглощены» этим слоем); false — открывать было нечего, можно закрывать
+  // просмотрщик целиком.
+  const closeTopLayerRef = useRef<() => boolean>(() => false);
+  closeTopLayerRef.current = () => {
+    if (mapOpenRef.current) { setMapOpen(false); return true; }
+    if (noteHotspotRef.current) { setNoteHotspot(null); return true; }
+    if (placingRef.current) { setPlacing(null); return true; }
+    if (selectedIdRef.current) { setSelectedId(null); return true; }
+    return false;
+  };
   // goTo сравнивает id с currentId из своего замыкания — эффект автотура
   // ниже создаётся один раз на весь показ (deps: [slideshow]) и звал бы
   // одну и ту же устаревшую версию goTo вечно; храним свежую в рефе.
@@ -385,7 +413,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { onClose(); return; }
+      if (e.key === "Escape") {
+        if (closeTopLayerRef.current()) return;
+        onClose();
+        return;
+      }
       if (e.key.startsWith("Arrow")) { keysRef.current.add(e.key); e.preventDefault(); }
       if (e.key === "+" || e.key === "=") viewRef.current.fov = clamp(viewRef.current.fov / 1.15, MIN_FOV, MAX_FOV);
       if (e.key === "-") viewRef.current.fov = clamp(viewRef.current.fov * 1.15, MIN_FOV, MAX_FOV);
@@ -399,6 +431,33 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       keysRef.current.clear();
     };
   }, [onClose]);
+
+  // Аппаратная/браузерная кнопка «назад» на телефоне иначе уводила бы не
+  // из текущего слоя (карты и т.п.), а сразу из редактора целиком — тур
+  // открыт не отдельным роутом, а поверх него, так что «назад» без этого
+  // просто откатывает историю браузера на предыдущий экран. Кладём одну
+  // запись в историю при открытии просмотрщика; «назад» ловим и либо
+  // закрываем верхний слой (и возвращаем эту же запись — чтобы следующий
+  // «назад» снова сработал так же), либо, если закрывать было нечего,
+  // закрываем весь просмотрщик и даём браузеру откатиться взаправду.
+  // Осознанно НЕ откатываем свою запись из истории в cleanup при закрытии
+  // другим способом (крестик/Esc) — history.back() там асинхронный и под
+  // React 18 StrictMode (двойной mount-unmount-remount эффектов в деве)
+  // его popstate прилетал не в тот эффект и закрывал просмотрщик сразу
+  // после открытия. Цена — одно лишнее (безвредное) нажатие «назад» после
+  // закрытия крестиком, только в деве; в проде эффекты не дублируются.
+  useEffect(() => {
+    window.history.pushState({ panoViewer: true }, "");
+    const onPopState = () => {
+      if (closeTopLayerRef.current()) {
+        window.history.pushState({ panoViewer: true }, "");
+        return;
+      }
+      onCloseRef.current();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   // ── Гироскоп ────────────────────────────────────────────────────
   useEffect(() => {
@@ -580,9 +639,6 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {canFullscreen && (
             <button className="pano-btn" onClick={toggleFullscreen} title={t("Во весь экран", "Fullscreen")}>{fullscreen ? "⤡" : "⤢"}</button>
           )}
-          {mapEnabled && mapUrl && (
-            <button className={`pano-btn${mapOpen ? " on" : ""}`} onClick={() => setMapOpen(!mapOpen)} title={t("Карта тура", "Tour map")}>🗺️</button>
-          )}
           {editable && (
             <button className={`pano-btn${edit ? " on" : ""}`} onClick={() => { setEdit(!edit); setSelectedId(null); setPlacing(null); }} title={t("Редактировать переходы", "Edit transitions")}>✏️</button>
           )}
@@ -720,6 +776,22 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       )}
 
       {toast && <div className="pano-toast">{toast}</div>}
+
+      {mapEnabled && mapUrl && !edit && !mapOpen && (
+        <button className="pano-map-mini" data-hud onPointerDown={(e) => e.stopPropagation()} onClick={() => setMapOpen(true)} title={t("Развернуть карту", "Expand map")}>
+          <img src={mapUrl} alt="" />
+          {scenes
+            .filter((s) => s.mapX != null && s.mapY != null)
+            .map((s) => (
+              <span
+                key={s.id}
+                className={`pano-map-mini-pin${s.id === scene.id ? " on" : ""}`}
+                style={{ left: `${s.mapX}%`, top: `${s.mapY}%` }}
+              />
+            ))}
+          <span className="pano-map-mini-expand">⤢</span>
+        </button>
+      )}
 
       {mapOpen && mapUrl && (
         <div className="pano-map" data-hud onPointerDown={(e) => e.stopPropagation()}>
