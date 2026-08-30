@@ -317,10 +317,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       if (placing === "new" || placing === "new-note") {
         let spotNew: Hotspot;
         if (placing === "new") {
-          // Ставим точку слева (по вкусу — "назад") — раньше это всё равно
-          // вело на следующую сцену; теперь направление берём из места
-          // клика: передняя половина сферы — вперёд, задняя — назад.
-          const targetId = Math.abs(wrapAngle(yaw)) < Math.PI / 2 ? nextSceneId() : prevSceneId();
+          // Направление по месту клика (перед/зад сферы в абсолютных
+          // координатах панорамы) оказалось ненадёжным — зависит от того,
+          // как именно снят конкретный кадр, и на реальных турах регулярно
+          // угадывало неверно (снимки сделаны примерно в одну сторону, и
+          // «назад по маршруту» физически попадает в переднюю половину
+          // сферы). Вместо геометрии — по факту: если для этой панорамы
+          // ещё нет перехода на следующую по порядку — ставим на неё,
+          // иначе если нет на предыдущую — на неё; если обе уже связаны,
+          // не гадаем — оставляем без цели, выбор в списке ниже.
+          const nextId = nextSceneId();
+          const prevId = prevSceneId();
+          const linked = new Set(scene.hotspots.map((h) => h.targetId).filter((id): id is string => !!id));
+          const targetId = nextId && !linked.has(nextId) ? nextId : prevId && !linked.has(prevId) ? prevId : null;
           const targetTitle = scenes.find((s) => s.id === targetId)?.title ?? "Переход";
           spotNew = { id: uid(), yaw, pitch, label: targetTitle, targetId };
         } else {
