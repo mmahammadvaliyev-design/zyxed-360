@@ -182,6 +182,10 @@
   display: flex; gap: 7px;
   padding: 18px 12px calc(12px + env(safe-area-inset-bottom));
   overflow-x: auto;
+  /* .pano-wrap выше выключает touch-action целиком (жест вращения панорамы) —
+     без явного разрешения здесь смахивание по полоске тоже блокировалось бы,
+     и при большом числе панорам палец не долистал бы до тех, что не влезли. */
+  touch-action: pan-x;
   background: linear-gradient(0deg, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
   scrollbar-width: none;
 }

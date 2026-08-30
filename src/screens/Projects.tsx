@@ -4,11 +4,13 @@ import { useNavigate } from "react-router-dom";
 import { createProject, db, deleteProject, duplicateProject, uniqueProjectTitle, type Project, type Scene } from "../db";
 import { importProjectBackup } from "../export/backup";
 import { useFeature } from "../features";
+import { useT } from "../i18n";
 
 // Название тура — обязательное и уникальное (см. uniqueProjectTitle в db.ts).
 // Локальный черновик, чтобы не писать в БД на каждое нажатие клавиши и не
 // откатывать курсор пользователю; проверка — по потере фокуса.
 function ProjectTitleInput({ project, onError }: { project: Project; onError: (msg: string) => void }) {
+  const t = useT();
   const [draft, setDraft] = useState(project.title);
   useEffect(() => setDraft(project.title), [project.id, project.title]);
 
@@ -16,14 +18,19 @@ function ProjectTitleInput({ project, onError }: { project: Project; onError: (m
     const trimmed = draft.trim();
     if (!trimmed) {
       setDraft(project.title);
-      onError("Название тура не может быть пустым.");
+      onError(t("Название тура не может быть пустым.", "Tour name can't be empty."));
       return;
     }
     if (trimmed === project.title) return;
     const unique = await uniqueProjectTitle(trimmed, project.id);
     if (unique !== trimmed) {
       setDraft(project.title);
-      onError(`Тур с названием «${trimmed}» уже есть — выберите другое название.`);
+      onError(
+        t(
+          `Тур с названием «${trimmed}» уже есть — выберите другое название.`,
+          `A tour named "${trimmed}" already exists — choose another name.`,
+        ),
+      );
       return;
     }
     await db.projects.update(project.id, { title: trimmed, updatedAt: new Date().toISOString() });
@@ -36,7 +43,7 @@ function ProjectTitleInput({ project, onError }: { project: Project; onError: (m
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      aria-label="Название тура"
+      aria-label={t("Название тура", "Tour name")}
       style={{ fontWeight: 700, padding: "6px 8px" }}
     />
   );
@@ -44,6 +51,7 @@ function ProjectTitleInput({ project, onError }: { project: Project; onError: (m
 
 export default function Projects() {
   const nav = useNavigate();
+  const t = useT();
   const projects = useLiveQuery(() => db.projects.orderBy("updatedAt").reverse().toArray(), []);
   const firstScenes = useLiveQuery(() => db.scenes.toArray(), []);
   const [busy, setBusy] = useState<string | null>(null);
@@ -70,18 +78,18 @@ export default function Projects() {
   for (const s of firstScenes ?? []) countByProject.set(s.projectId, (countByProject.get(s.projectId) ?? 0) + 1);
 
   async function newProject() {
-    const title = await uniqueProjectTitle("Новый тур");
+    const title = await uniqueProjectTitle(t("Новый тур", "New tour"));
     const p = await createProject(title);
     nav(`/p/${p.id}`);
   }
 
   async function remove(p: Project) {
-    if (!window.confirm(`Удалить тур «${p.title}» со всеми панорамами? Это необратимо.`)) return;
+    if (!window.confirm(t(`Удалить тур «${p.title}» со всеми панорамами? Это необратимо.`, `Delete the tour "${p.title}" and all its panoramas? This can't be undone.`))) return;
     await deleteProject(p.id);
   }
 
   async function duplicate(p: Project) {
-    setBusy("Дублирую тур…");
+    setBusy(t("Дублирую тур…", "Duplicating tour…"));
     try {
       await duplicateProject(p.id);
     } finally {
@@ -95,12 +103,12 @@ export default function Projects() {
   async function importBackup(file: File | undefined) {
     if (!file) return;
     setNote(null);
-    setBusy("Импортирую копию…");
+    setBusy(t("Импортирую копию…", "Importing backup…"));
     try {
       const project = await importProjectBackup(file);
       nav(`/p/${project.id}`);
     } catch (e) {
-      setNote(`Не удалось импортировать копию: ${(e as Error).message}`);
+      setNote(t(`Не удалось импортировать копию: ${(e as Error).message}`, `Couldn't import the backup: ${(e as Error).message}`));
     } finally {
       setBusy(null);
       if (backupRef.current) backupRef.current.value = "";
@@ -114,19 +122,19 @@ export default function Projects() {
           <div className="brand-mark">Z</div>
           <div>
             <h1 style={{ margin: 0 }}>Zyxed 360</h1>
-            <div className="muted">Офлайн-конструктор 360°-туров</div>
+            <div className="muted">{t("Офлайн-конструктор 360°-туров", "Offline 360° tour builder")}</div>
           </div>
         </div>
-        <button className="ghost small" onClick={() => nav("/settings")} title="Настройки" aria-label="Настройки">⚙</button>
+        <button className="ghost small" onClick={() => nav("/settings")} title={t("Настройки", "Settings")} aria-label={t("Настройки", "Settings")}>⚙</button>
       </div>
 
       <button className="primary" style={{ width: "100%" }} disabled={!!busy} onClick={newProject}>
-        + Новый тур
+        {t("+ Новый тур", "+ New tour")}
       </button>
       {projectBackup && (
         <>
           <button className="ghost" style={{ width: "100%", marginTop: 8 }} disabled={!!busy} onClick={() => backupRef.current?.click()}>
-            ⬆ Импортировать копию
+            {t("⬆ Импортировать копию", "⬆ Import backup")}
           </button>
           <input
             ref={backupRef}
@@ -142,7 +150,7 @@ export default function Projects() {
         <div className="card banner" style={{ marginTop: 11 }}>
           <div className="row spread" style={{ gap: 8, alignItems: "flex-start" }}>
             <div style={{ lineHeight: 1.5 }}>{note}</div>
-            <button className="ghost small" onClick={() => setNote(null)} aria-label="Скрыть">✕</button>
+            <button className="ghost small" onClick={() => setNote(null)} aria-label={t("Скрыть", "Dismiss")}>✕</button>
           </div>
         </div>
       )}
@@ -150,19 +158,19 @@ export default function Projects() {
 
       {projects && projects.length > 0 && (
         <>
-          <h2>Мои туры · {projects.length}</h2>
+          <h2>{t("Мои туры", "My tours")} · {projects.length}</h2>
           {projects.map((p) => (
             <div className="card proj-item" key={p.id}>
-              <button className="proj-thumb" onClick={() => nav(`/p/${p.id}`)} title="Открыть">
+              <button className="proj-thumb" onClick={() => nav(`/p/${p.id}`)} title={t("Открыть", "Open")}>
                 {thumbs[p.id] ? <img src={thumbs[p.id]} alt="" /> : "🌐"}
               </button>
               <div className="grow">
                 <ProjectTitleInput project={p} onError={setNote} />
-                <div className="muted" style={{ marginTop: 6 }}>{countByProject.get(p.id) ?? 0} панорам</div>
+                <div className="muted" style={{ marginTop: 6 }}>{countByProject.get(p.id) ?? 0} {t("панорам", "panoramas")}</div>
                 <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
-                  <button className="ghost small grow" onClick={() => nav(`/p/${p.id}`)}>Открыть</button>
-                  <button className="ghost small" onClick={() => duplicate(p)} title="Дублировать">⧉</button>
-                  <button className="ghost small" onClick={() => remove(p)} aria-label="Удалить">🗑</button>
+                  <button className="ghost small grow" onClick={() => nav(`/p/${p.id}`)}>{t("Открыть", "Open")}</button>
+                  <button className="ghost small" onClick={() => duplicate(p)} title={t("Дублировать", "Duplicate")}>⧉</button>
+                  <button className="ghost small" onClick={() => remove(p)} aria-label={t("Удалить", "Delete")}>🗑</button>
                 </div>
               </div>
             </div>
@@ -172,7 +180,7 @@ export default function Projects() {
 
       {projects && projects.length === 0 && !busy && (
         <div className="empty">
-          Туров пока нет. Нажмите «+ Новый тур», чтобы начать.
+          {t("Туров пока нет. Нажмите «+ Новый тур», чтобы начать.", "No tours yet. Tap \"+ New tour\" to get started.")}
         </div>
       )}
     </div>

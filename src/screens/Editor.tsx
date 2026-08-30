@@ -10,10 +10,11 @@ import { renderQrToCanvas } from "../qr";
 import PanoViewer from "../components/PanoViewer";
 import { useEffect } from "react";
 import { useFeature } from "../features";
+import { tNow, useT } from "../i18n";
 
 function titleFromFile(name: string): string {
   const base = name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-  if (!base) return "Панорама";
+  if (!base) return tNow("Панорама", "Panorama");
   return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
@@ -24,10 +25,10 @@ function sizeMb(scenes: Scene[]): string {
 
 // Функция «Сжатие панорам при импорте».
 type CompressionPresetId = "original" | "standard" | "compact";
-const COMPRESSION_PRESETS: { id: CompressionPresetId; label: string }[] = [
-  { id: "original", label: "Оригинал — без доп. сжатия" },
-  { id: "standard", label: "Стандарт — до 2048px, качество 85%" },
-  { id: "compact", label: "Компактно — до 1440px, качество 72%" },
+const COMPRESSION_PRESETS: { id: CompressionPresetId; labelRu: string; labelEn: string }[] = [
+  { id: "original", labelRu: "Оригинал — без доп. сжатия", labelEn: "Original — no extra compression" },
+  { id: "standard", labelRu: "Стандарт — до 2048px, качество 85%", labelEn: "Standard — up to 2048px, 85% quality" },
+  { id: "compact", labelRu: "Компактно — до 1440px, качество 72%", labelEn: "Compact — up to 1440px, 72% quality" },
 ];
 function compressionOpts(id: CompressionPresetId): { maxWidth?: number; quality?: number } {
   if (id === "standard") return { maxWidth: 2048, quality: 0.85 };
@@ -39,6 +40,7 @@ export default function Editor() {
   const { id } = useParams<{ id: string }>();
   const projectId = id!;
   const nav = useNavigate();
+  const t = useT();
 
   const project = useLiveQuery(() => db.projects.get(projectId), [projectId]);
   const scenes = useLiveQuery(() => db.scenes.where("projectId").equals(projectId).sortBy("order"), [projectId]);
@@ -91,14 +93,19 @@ export default function Editor() {
     const trimmed = titleDraft.trim();
     if (!trimmed) {
       setTitleDraft(project.title);
-      setNote("Название тура не может быть пустым.");
+      setNote(t("Название тура не может быть пустым.", "Tour name can't be empty."));
       return;
     }
     if (trimmed === project.title) return;
     const unique = await uniqueProjectTitle(trimmed, projectId);
     if (unique !== trimmed) {
       setTitleDraft(project.title);
-      setNote(`Тур с названием «${trimmed}» уже есть — выберите другое название.`);
+      setNote(
+        t(
+          `Тур с названием «${trimmed}» уже есть — выберите другое название.`,
+          `A tour named "${trimmed}" already exists — choose another name.`,
+        ),
+      );
       return;
     }
     await db.projects.update(projectId, { title: trimmed, updatedAt: new Date().toISOString() });
@@ -108,7 +115,14 @@ export default function Editor() {
   // панорамы, при выходе спрашиваем — удалить черновик или оставить.
   async function handleBack() {
     if (list.length === 0) {
-      if (window.confirm(`Тур «${project?.title ?? ""}» пока пуст — удалить его, чтобы не копились пустые заготовки?`)) {
+      if (
+        window.confirm(
+          t(
+            `Тур «${project?.title ?? ""}» пока пуст — удалить его, чтобы не копились пустые заготовки?`,
+            `The tour "${project?.title ?? ""}" is still empty — delete it so empty drafts don't pile up?`,
+          ),
+        )
+      ) {
         await deleteProject(projectId);
       }
     }
@@ -131,7 +145,7 @@ export default function Editor() {
     let warned: string | null = null;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setBusy(`Обрабатываю ${i + 1} из ${files.length}…`);
+      setBusy(t(`Обрабатываю ${i + 1} из ${files.length}…`, `Processing ${i + 1} of ${files.length}…`));
       try {
         const prep = await prepareImage(file, compression ? compressionOpts(compressionPreset) : {});
         warned = warned ?? ratioHint(prep.width, prep.height);
@@ -153,8 +167,14 @@ export default function Editor() {
         const err = e as { name?: string; message?: string };
         warned =
           err.name === "QuotaExceededError"
-            ? "В браузере закончилось место — удалите часть панорам или старые данные."
-            : `Не получилось добавить «${file.name}»: ${err.message ?? "неизвестная ошибка"}`;
+            ? t(
+                "В браузере закончилось место — удалите часть панорам или старые данные.",
+                "The browser ran out of storage — delete some panoramas or old data.",
+              )
+            : t(
+                `Не получилось добавить «${file.name}»: ${err.message ?? "неизвестная ошибка"}`,
+                `Couldn't add "${file.name}": ${err.message ?? "unknown error"}`,
+              );
       }
     }
     await touch();
@@ -165,7 +185,7 @@ export default function Editor() {
 
   async function linkInCircle() {
     if (list.length < 2) return;
-    setBusy("Расставляю переходы…");
+    setBusy(t("Расставляю переходы…", "Placing transitions…"));
     for (let i = 0; i < list.length; i++) {
       const scene = list[i];
       const next = list[(i + 1) % list.length];
@@ -179,7 +199,12 @@ export default function Editor() {
     }
     await touch();
     setBusy(null);
-    setNote("Переходы расставлены: вправо — следующая панорама, влево — предыдущая. Место можно поправить в туре (карандаш).");
+    setNote(
+      t(
+        "Переходы расставлены: вправо — следующая панорама, влево — предыдущая. Место можно поправить в туре (карандаш).",
+        "Transitions placed: right — next panorama, left — previous. You can adjust placement in the tour (pencil icon).",
+      ),
+    );
   }
 
   // Функция «Линейная цепочка переходов»: то же, что «по кругу», но без
@@ -189,7 +214,7 @@ export default function Editor() {
   // связан «по кругу» — иначе "обратная" ссылка так и осталась бы).
   async function linkInChain() {
     if (list.length < 2) return;
-    setBusy("Расставляю переходы…");
+    setBusy(t("Расставляю переходы…", "Placing transitions…"));
     const firstId = list[0].id;
     const lastId = list[list.length - 1].id;
     for (let i = 0; i < list.length; i++) {
@@ -213,7 +238,12 @@ export default function Editor() {
     }
     await touch();
     setBusy(null);
-    setNote("Переходы расставлены по порядку: вправо — следующая панорама, влево — предыдущая. Первая и последняя панорамы соединены только в одну сторону — без цикла.");
+    setNote(
+      t(
+        "Переходы расставлены по порядку: вправо — следующая панорама, влево — предыдущая. Первая и последняя панорамы соединены только в одну сторону — без цикла.",
+        "Transitions placed in order: right — next panorama, left — previous. The first and last panoramas are linked only one-way — no loop.",
+      ),
+    );
   }
 
   async function rename(scene: Scene, title: string) {
@@ -297,7 +327,7 @@ export default function Editor() {
   }
 
   async function remove(scene: Scene) {
-    if (!window.confirm(`Удалить панораму «${scene.title}»?`)) return;
+    if (!window.confirm(t(`Удалить панораму «${scene.title}»?`, `Delete the panorama "${scene.title}"?`))) return;
     await db.scenes.delete(scene.id);
     for (const s of list) {
       if (s.id === scene.id) continue;
@@ -314,13 +344,18 @@ export default function Editor() {
 
   async function doExport() {
     setNote(null);
-    setBusy("Собираю файлы тура…");
+    setBusy(t("Собираю файлы тура…", "Assembling tour files…"));
     try {
       const { blob, filename } = await exportProjectZip(projectId);
       downloadBlob(blob, filename);
-      setNote(`Готово: ${filename} скачан. Загрузите содержимое архива на любой статический хостинг (GitHub Pages, Netlify, Vercel) — и тур будет доступен по ссылке.`);
+      setNote(
+        t(
+          `Готово: ${filename} скачан. Загрузите содержимое архива на любой статический хостинг (GitHub Pages, Netlify, Vercel) — и тур будет доступен по ссылке.`,
+          `Done: ${filename} downloaded. Upload the archive's contents to any static hosting (GitHub Pages, Netlify, Vercel) — and the tour will be available by link.`,
+        ),
+      );
     } catch (e) {
-      setNote(`Не удалось собрать экспорт: ${(e as Error).message}`);
+      setNote(t(`Не удалось собрать экспорт: ${(e as Error).message}`, `Couldn't build the export: ${(e as Error).message}`));
     } finally {
       setBusy(null);
     }
@@ -331,13 +366,18 @@ export default function Editor() {
   // и редактировать) — на другое устройство или в другой браузер.
   async function doBackupExport() {
     setNote(null);
-    setBusy("Собираю резервную копию…");
+    setBusy(t("Собираю резервную копию…", "Assembling backup…"));
     try {
       const { blob, filename } = await exportProjectBackup(projectId);
       downloadBlob(blob, filename);
-      setNote(`Готово: ${filename} скачан. Это полная копия проекта — храните файл или перенесите на другое устройство через «Импортировать копию» на главном экране.`);
+      setNote(
+        t(
+          `Готово: ${filename} скачан. Это полная копия проекта — храните файл или перенесите на другое устройство через «Импортировать копию» на главном экране.`,
+          `Done: ${filename} downloaded. This is a full copy of the project — keep the file or move it to another device via "Import backup" on the home screen.`,
+        ),
+      );
     } catch (e) {
-      setNote(`Не удалось собрать копию: ${(e as Error).message}`);
+      setNote(t(`Не удалось собрать копию: ${(e as Error).message}`, `Couldn't build the backup: ${(e as Error).message}`));
     } finally {
       setBusy(null);
     }
@@ -378,9 +418,9 @@ export default function Editor() {
   if (project === null) {
     return (
       <div className="empty">
-        Тур не найден.
+        {t("Тур не найден.", "Tour not found.")}
         <div style={{ marginTop: 14 }}>
-          <button className="ghost" onClick={() => nav("/")}>← К списку туров</button>
+          <button className="ghost" onClick={() => nav("/")}>{t("← К списку туров", "← Back to tours")}</button>
         </div>
       </div>
     );
@@ -388,7 +428,7 @@ export default function Editor() {
 
   return (
     <div>
-      <button className="back-link" onClick={handleBack}>← Все туры</button>
+      <button className="back-link" onClick={handleBack}>{t("← Все туры", "← All tours")}</button>
       <input
         type="text"
         value={titleDraft}
@@ -396,36 +436,38 @@ export default function Editor() {
         onBlur={commitTitle}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
         style={{ fontWeight: 800, fontSize: 22, padding: "8px 10px", marginBottom: 14 }}
-        aria-label="Название тура"
+        aria-label={t("Название тура", "Tour name")}
       />
 
       {note && (
         <div className="card banner">
           <div className="row spread" style={{ gap: 8, alignItems: "flex-start" }}>
             <div style={{ lineHeight: 1.5 }}>{note}</div>
-            <button className="ghost small" onClick={() => setNote(null)} aria-label="Скрыть">✕</button>
+            <button className="ghost small" onClick={() => setNote(null)} aria-label={t("Скрыть", "Dismiss")}>✕</button>
           </div>
         </div>
       )}
 
       <div className="card">
         <button className="primary" style={{ width: "100%" }} disabled={!!busy} onClick={() => fileRef.current?.click()}>
-          📷 Добавить панорамы
+          {t("📷 Добавить панорамы", "📷 Add panoramas")}
         </button>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => addFiles(e.target.files)} />
         <p className="muted" style={{ marginBottom: 0, marginTop: 10, lineHeight: 1.5 }}>
-          Подойдёт любой сферический снимок 2:1 — из режима «Панорама 360» на телефоне,
-          с экшн-камеры или из Google Street View.
+          {t(
+            "Подойдёт любой сферический снимок 2:1 — из режима «Панорама 360» на телефоне, с экшн-камеры или из Google Street View.",
+            "Any 2:1 spherical shot works — from \"360 Panorama\" mode on a phone, an action camera, or Google Street View.",
+          )}
         </p>
         {compression && (
           <select
             value={compressionPreset}
             onChange={(e) => setCompressionPreset(e.target.value as CompressionPresetId)}
             style={{ marginTop: 10 }}
-            aria-label="Качество при импорте"
+            aria-label={t("Качество при импорте", "Import quality")}
           >
             {COMPRESSION_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
+              <option key={p.id} value={p.id}>{t(p.labelRu, p.labelEn)}</option>
             ))}
           </select>
         )}
@@ -435,19 +477,26 @@ export default function Editor() {
 
       {list.length > 0 && (
         <>
-          <button className="primary" style={{ width: "100%", marginBottom: 8 }} onClick={() => setOpenId(list[0].id)}>▶ Открыть тур</button>
+          <button className="primary" style={{ width: "100%", marginBottom: 8 }} onClick={() => setOpenId(list[0].id)}>{t("▶ Открыть тур", "▶ Open tour")}</button>
           <div className="row wrap" style={{ gap: 8, marginBottom: 11 }}>
-            {circleLink && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>Связать по кругу</button>}
-            {linearChain && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInChain}>Связать по порядку</button>}
-            <button className="ghost" disabled={!!busy} onClick={doExport}>⬇ Экспорт</button>
-            {projectBackup && <button className="ghost" disabled={!!busy} onClick={doBackupExport} title="Полная копия проекта — для переноса или бэкапа">💾 Копия</button>}
+            {circleLink && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInCircle}>{t("Связать по кругу", "Link in a circle")}</button>}
+            {linearChain && list.length > 1 && <button className="ghost" disabled={!!busy} onClick={linkInChain}>{t("Связать по порядку", "Link in order")}</button>}
+            <button className="ghost" disabled={!!busy} onClick={doExport}>{t("⬇ Экспорт", "⬇ Export")}</button>
+            {projectBackup && (
+              <button className="ghost" disabled={!!busy} onClick={doBackupExport} title={t("Полная копия проекта — для переноса или бэкапа", "Full project copy — for transfer or backup")}>
+                {t("💾 Копия", "💾 Backup")}
+              </button>
+            )}
           </div>
 
           {qrCode && (
             <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>QR-код тура</div>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("QR-код тура", "Tour QR code")}</div>
               <p className="muted" style={{ marginTop: 0, marginBottom: 8, lineHeight: 1.5 }}>
-                Вставьте ссылку на уже опубликованный тур (после того как загрузите архив «Экспорт» на хостинг) — получите QR-код для печати в отчёте или на объекте.
+                {t(
+                  "Вставьте ссылку на уже опубликованный тур (после того как загрузите архив «Экспорт» на хостинг) — получите QR-код для печати в отчёте или на объекте.",
+                  "Paste a link to an already published tour (after you upload the \"Export\" archive to hosting) — get a QR code to print in a report or on-site.",
+                )}
               </p>
               <input
                 type="text"
@@ -456,7 +505,7 @@ export default function Editor() {
                 onChange={(e) => { setQrUrl(e.target.value); setHasQr(false); }}
               />
               <button className="ghost" style={{ marginTop: 8 }} disabled={!qrUrl.trim()} onClick={generateQr}>
-                Сгенерировать QR
+                {t("Сгенерировать QR", "Generate QR")}
               </button>
               {qrError && <div style={{ color: "var(--red)", marginTop: 6, fontSize: 13 }}>{qrError}</div>}
               <div style={{ marginTop: 10, textAlign: "center" }}>
@@ -464,13 +513,13 @@ export default function Editor() {
               </div>
               {hasQr && (
                 <button className="ghost small" style={{ marginTop: 8 }} onClick={downloadQr}>
-                  ⬇ Скачать PNG
+                  {t("⬇ Скачать PNG", "⬇ Download PNG")}
                 </button>
               )}
             </div>
           )}
 
-          <h2>Панорамы · {list.length} шт · {sizeMb(list)} МБ</h2>
+          <h2>{t("Панорамы", "Panoramas")} · {list.length} {t("шт", "pcs")} · {sizeMb(list)} {t("МБ", "MB")}</h2>
           {displayList.map((s, i) => (
             <div
               className={`card pano-item${draggingId === s.id ? " dragging" : ""}`}
@@ -485,33 +534,33 @@ export default function Editor() {
                   onPointerMove={dragMove}
                   onPointerUp={dragEnd}
                   onPointerCancel={dragEnd}
-                  aria-label="Перетащить для сортировки"
-                  title="Перетащите, чтобы переставить"
+                  aria-label={t("Перетащить для сортировки", "Drag to reorder")}
+                  title={t("Перетащите, чтобы переставить", "Drag to reorder")}
                 >
                   ⠿
                 </button>
               )}
-              <button className="pano-thumb" onClick={() => setOpenId(s.id)} title="Открыть">
+              <button className="pano-thumb" onClick={() => setOpenId(s.id)} title={t("Открыть", "Open")}>
                 {thumbs[s.id] ? <img src={thumbs[s.id]} alt="" /> : <span className="muted">…</span>}
               </button>
               <div className="grow">
-                <input type="text" value={s.title} onChange={(e) => rename(s, e.target.value)} aria-label="Название панорамы" />
+                <input type="text" value={s.title} onChange={(e) => rename(s, e.target.value)} aria-label={t("Название панорамы", "Panorama name")} />
                 {i18n && (
                   <input
                     type="text"
                     value={s.titleEn ?? ""}
                     onChange={(e) => renameEn(s, e.target.value)}
-                    placeholder="English title (необязательно)"
-                    aria-label="Название по-английски"
+                    placeholder={t("English title (необязательно)", "English title (optional)")}
+                    aria-label={t("Название по-английски", "Title in English")}
                     style={{ marginTop: 6 }}
                   />
                 )}
-                <div className="muted" style={{ marginTop: 6 }}>{s.width}×{s.height} · переходов: {s.hotspots.length}</div>
+                <div className="muted" style={{ marginTop: 6 }}>{s.width}×{s.height} · {t("переходов", "transitions")}: {s.hotspots.length}</div>
                 <div className="row" style={{ gap: 6, marginTop: 8 }}>
-                  <button className="ghost small" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Выше">↑</button>
-                  <button className="ghost small" disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="Ниже">↓</button>
-                  <button className="ghost small grow" onClick={() => setOpenId(s.id)}>Открыть</button>
-                  <button className="ghost small" onClick={() => remove(s)} aria-label="Удалить">🗑</button>
+                  <button className="ghost small" disabled={i === 0} onClick={() => move(i, -1)} aria-label={t("Выше", "Move up")}>↑</button>
+                  <button className="ghost small" disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label={t("Ниже", "Move down")}>↓</button>
+                  <button className="ghost small grow" onClick={() => setOpenId(s.id)}>{t("Открыть", "Open")}</button>
+                  <button className="ghost small" onClick={() => remove(s)} aria-label={t("Удалить", "Delete")}>🗑</button>
                 </div>
               </div>
             </div>
@@ -520,7 +569,7 @@ export default function Editor() {
       )}
 
       {list.length === 0 && !busy && (
-        <div className="empty">Добавьте первую панораму, чтобы начать собирать тур.</div>
+        <div className="empty">{t("Добавьте первую панораму, чтобы начать собирать тур.", "Add the first panorama to start building the tour.")}</div>
       )}
 
       {openScene && (

@@ -4,20 +4,24 @@ import { FEATURES, setFeatureEnabled, useFeature, type FeatureFlag } from "../fe
 import { setBranding, useBranding } from "../branding";
 import { setAppLanguage, useAppLanguage } from "../appLanguage";
 import { prepareBrandingLogo } from "../imageImport";
+import { useT } from "../i18n";
 
 function FeatureRow({ feature }: { feature: FeatureFlag }) {
   const on = useFeature(feature.id);
+  const lang = useAppLanguage();
+  const label = lang === "en" ? feature.labelEn : feature.label;
+  const description = lang === "en" ? feature.descriptionEn : feature.description;
   return (
     <div className="card row spread" style={{ alignItems: "flex-start", gap: 12 }}>
       <div className="grow">
-        <div style={{ fontWeight: 700, marginBottom: 3 }}>{feature.label}</div>
-        <div className="muted" style={{ lineHeight: 1.5 }}>{feature.description}</div>
+        <div style={{ fontWeight: 700, marginBottom: 3 }}>{label}</div>
+        <div className="muted" style={{ lineHeight: 1.5 }}>{description}</div>
       </div>
       <button
         className={`switch${on ? " on" : ""}`}
         role="switch"
         aria-checked={on}
-        aria-label={feature.label}
+        aria-label={label}
         onClick={() => setFeatureEnabled(feature.id, !on)}
       >
         <span className="switch-thumb" />
@@ -29,6 +33,7 @@ function FeatureRow({ feature }: { feature: FeatureFlag }) {
 // Настройка логотипа/подписи для функции «Брендинг тура» — показывается
 // сразу под её тумблером, пока он включён.
 function BrandingEditor() {
+  const t = useT();
   const branding = useBranding();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -57,24 +62,24 @@ function BrandingEditor() {
           {branding.logo ? (
             <img src={branding.logo} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           ) : (
-            <span className="muted" style={{ fontSize: 10 }}>нет лого</span>
+            <span className="muted" style={{ fontSize: 10 }}>{t("нет лого", "no logo")}</span>
           )}
         </div>
         <div className="grow">
           <label className="ghost small" style={{ cursor: "pointer", display: "inline-block" }}>
-            {busy ? "Загружаю…" : branding.logo ? "Заменить логотип" : "+ Логотип"}
+            {busy ? t("Загружаю…", "Uploading…") : branding.logo ? t("Заменить логотип", "Replace logo") : t("+ Логотип", "+ Logo")}
             <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pickLogo(e.target.files?.[0])} />
           </label>
           {branding.logo && (
             <button className="ghost small" style={{ marginLeft: 6 }} onClick={() => setBranding({ logo: undefined })}>
-              ✕ убрать
+              {t("✕ убрать", "✕ remove")}
             </button>
           )}
         </div>
       </div>
       <input
         type="text"
-        placeholder="Подпись (необязательно) — например «ZYXED Engineering»"
+        placeholder={t("Подпись (необязательно) — например «ZYXED Engineering»", "Caption (optional) — e.g. \"ZYXED Engineering\"")}
         value={branding.text ?? ""}
         onChange={(e) => setBranding({ text: e.target.value })}
         style={{ marginTop: 10 }}
@@ -83,14 +88,17 @@ function BrandingEditor() {
   );
 }
 
-// Язык приложения для функции «RU/EN тур» — выбор здесь сразу меняет, какой
-// вариант (RU/EN) показывается в приложении, и на каком языке соберётся
-// следующий экспорт. Никакого переключателя внутри самого тура больше нет.
+// Язык приложения — основная настройка, не спрятана за тумблером: выбор
+// здесь сразу меняет весь интерфейс приложения, и на каком языке соберётся
+// следующий экспорт. Никакого переключателя внутри самого тура нет — только
+// сам выбор из двух языков. Функция «RU/EN тур» ниже — отдельная, необязательная
+// штука (английские поля для содержимого тура), язык приложения от неё не зависит.
 function LanguageSelector() {
+  const t = useT();
   const lang = useAppLanguage();
   return (
-    <div className="card" style={{ marginTop: -5, marginBottom: 11 }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Язык приложения</div>
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>{t("Язык приложения", "App language")}</div>
       <div className="row" style={{ gap: 6 }}>
         <button className={lang === "ru" ? "primary" : "ghost"} style={{ flex: 1 }} onClick={() => setAppLanguage("ru")}>
           Русский
@@ -100,11 +108,10 @@ function LanguageSelector() {
         </button>
       </div>
       <p className="muted" style={{ marginTop: 10, marginBottom: 0, lineHeight: 1.5, fontSize: 13 }}>
-        Переключает только те панорамы и подписи переходов, где в редакторе
-        заполнено поле «English title» / «Label (English)». Пока оно пустое —
-        показывается русский текст, даже если выбран English: перевод нужно
-        вписать вручную для каждой панорамы/перехода, которые хотите показать
-        на английском.
+        {t(
+          "Меняет язык всего интерфейса приложения. Для содержимого тура (названия панорам, подписи переходов) переключает только те, где в редакторе заполнено поле «English title» / «Label (English)» — пока оно пустое, показывается русский текст.",
+          "Changes the language of the whole app interface. For tour content (panorama titles, transition labels) it only switches ones where the \"English title\" / \"Label (English)\" field is filled in — while it's empty, the Russian text is shown.",
+        )}
       </p>
     </div>
   );
@@ -112,22 +119,23 @@ function LanguageSelector() {
 
 export default function Settings() {
   const nav = useNavigate();
+  const t = useT();
   const brandingOn = useFeature("branding");
-  const i18nOn = useFeature("i18n");
   return (
     <div>
-      <button className="back-link" onClick={() => nav("/")}>← Мои туры</button>
-      <h1>Настройки</h1>
+      <button className="back-link" onClick={() => nav("/")}>{t("← Мои туры", "← My tours")}</button>
+      <h1>{t("Настройки", "Settings")}</h1>
+      <LanguageSelector />
       <p className="muted" style={{ marginTop: -6, marginBottom: 16, lineHeight: 1.5 }}>
-        Дополнительные функции — каждую можно включить или выключить отдельно.
-        Состояние применяется и здесь, в редакторе/просмотре, и в турах,
-        которые вы экспортируете после этого.
+        {t(
+          "Дополнительные функции — каждую можно включить или выключить отдельно. Состояние применяется и здесь, в редакторе/просмотре, и в турах, которые вы экспортируете после этого.",
+          "Additional features — each can be turned on or off independently. The state applies here, in the editor/viewer, and in tours you export afterwards.",
+        )}
       </p>
       {FEATURES.map((f) => (
         <div key={f.id}>
           <FeatureRow feature={f} />
           {f.id === "branding" && brandingOn && <BrandingEditor />}
-          {f.id === "i18n" && i18nOn && <LanguageSelector />}
         </div>
       ))}
     </div>

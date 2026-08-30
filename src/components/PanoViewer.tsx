@@ -19,6 +19,7 @@ import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "..
 import { useFeature } from "../features";
 import { useBranding } from "../branding";
 import { useAppLanguage } from "../appLanguage";
+import { useT } from "../i18n";
 
 interface Props {
   scenes: Scene[]; // весь тур, по порядку
@@ -33,6 +34,7 @@ const FRICTION = 6;
 const TAP_SLOP = 8;
 
 export default function PanoViewer({ scenes, startId, editable, onClose, onChange }: Props) {
+  const t = useT();
   const [currentId, setCurrentId] = useState(startId);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +122,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const renderer = new PanoRenderer(canvas);
     rendererRef.current = renderer;
     if (!renderer.ok) {
-      setError("Браузер не поддерживает WebGL — 360°-панораму показать нечем.");
+      setError(t("Браузер не поддерживает WebGL — 360°-панораму показать нечем.", "The browser doesn't support WebGL — no way to show a 360° panorama."));
       setLoading(false);
       return () => { renderer.dispose(); rendererRef.current = null; };
     }
@@ -228,7 +230,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       })
       .catch(() => {
         if (cancelled) return;
-        setError("Не удалось открыть панораму — файл повреждён?");
+        setError(t("Не удалось открыть панораму — файл повреждён?", "Couldn't open the panorama — is the file corrupted?"));
         setLoading(false);
       });
 
@@ -330,10 +332,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           const prevId = prevSceneId();
           const linked = new Set(scene.hotspots.map((h) => h.targetId).filter((id): id is string => !!id));
           const targetId = nextId && !linked.has(nextId) ? nextId : prevId && !linked.has(prevId) ? prevId : null;
-          const targetTitle = scenes.find((s) => s.id === targetId)?.title ?? "Переход";
+          const targetTitle = scenes.find((s) => s.id === targetId)?.title ?? t("Переход", "Transition");
           spotNew = { id: uid(), yaw, pitch, label: targetTitle, targetId };
         } else {
-          spotNew = { id: uid(), yaw, pitch, label: "Заметка", targetId: null };
+          spotNew = { id: uid(), yaw, pitch, label: t("Заметка", "Note"), targetId: null };
         }
         onChange({ ...scene, hotspots: [...scene.hotspots, spotNew] });
         setSelectedId(spotNew.id);
@@ -402,7 +404,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const timer = window.setTimeout(() => {
       if (gyroRef.current.init) return;
       setGyro(false);
-      flash("Датчик наклона недоступен на этом устройстве");
+      flash(t("Датчик наклона недоступен на этом устройстве", "Tilt sensor unavailable on this device"));
     }, 2000);
     return () => {
       window.clearTimeout(timer);
@@ -413,7 +415,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   async function toggleGyro() {
     if (gyro) { setGyro(false); return; }
     const allowed = await requestGyroPermission();
-    if (!allowed) { flash("Браузер не дал доступ к датчику наклона"); return; }
+    if (!allowed) { flash(t("Браузер не дал доступ к датчику наклона", "The browser didn't grant tilt sensor access")); return; }
     gyroRef.current.init = false;
     setGyro(true);
     setAutorotate(false);
@@ -427,14 +429,14 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }, []);
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else wrapRef.current?.requestFullscreen?.().catch(() => flash("Полный экран недоступен"));
+    else wrapRef.current?.requestFullscreen?.().catch(() => flash(t("Полный экран недоступен", "Fullscreen unavailable")));
   }
 
   function saveStartView() {
     if (!scene || !onChange) return;
     const v = viewRef.current;
     onChange({ ...scene, yaw: v.yaw, pitch: v.pitch, fov: v.fov });
-    flash("Стартовый вид сохранён");
+    flash(t("Стартовый вид сохранён", "Starting view saved"));
   }
   function updateHotspot(id: string, patch: Partial<Hotspot>) {
     if (!scene || !onChange) return;
@@ -503,7 +505,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       onChange({ ...neighbor, hotspots: [...neighbor.hotspots, clone] });
       added++;
     }
-    flash(added > 0 ? `Заметка добавлена на соседние панорамы (${added})` : "На соседних панорамах уже есть такая заметка");
+    flash(
+      added > 0
+        ? t(`Заметка добавлена на соседние панорамы (${added})`, `Note added to neighboring panoramas (${added})`)
+        : t("На соседних панорамах уже есть такая заметка", "Neighboring panoramas already have this note"),
+    );
   }
 
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
@@ -541,7 +547,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       ))}
 
       <div className={`pano-veil${loading || error ? " on" : ""}`}>
-        {error ? <div className="pano-error">{error}</div> : <div className="pano-loader">Загружаю панораму…</div>}
+        {error ? <div className="pano-error">{error}</div> : <div className="pano-loader">{t("Загружаю панораму…", "Loading panorama…")}</div>}
       </div>
 
       <div className="pano-top" data-hud onPointerDown={(e) => e.stopPropagation()}>
@@ -551,19 +557,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         </div>
         <div className="pano-tools">
           {slideshowEnabled && scenes.length > 1 && (
-            <button className={`pano-btn${slideshow ? " on" : ""}`} onClick={() => setSlideshow(!slideshow)} title="Автотур (слайд-шоу)">▶</button>
+            <button className={`pano-btn${slideshow ? " on" : ""}`} onClick={() => setSlideshow(!slideshow)} title={t("Автотур (слайд-шоу)", "Auto tour (slideshow)")}>▶</button>
           )}
-          <button className={`pano-btn${autorotate ? " on" : ""}`} onClick={() => { setAutorotate(!autorotate); setGyro(false); }} title="Автоповорот">↻</button>
+          <button className={`pano-btn${autorotate ? " on" : ""}`} onClick={() => { setAutorotate(!autorotate); setGyro(false); }} title={t("Автоповорот", "Auto-rotate")}>↻</button>
           {GYRO_SUPPORTED && (
-            <button className={`pano-btn${gyro ? " on" : ""}`} onClick={toggleGyro} title="Поворот по наклону телефона">🧭</button>
+            <button className={`pano-btn${gyro ? " on" : ""}`} onClick={toggleGyro} title={t("Поворот по наклону телефона", "Rotate by tilting the phone")}>🧭</button>
           )}
           {canFullscreen && (
-            <button className="pano-btn" onClick={toggleFullscreen} title="Во весь экран">{fullscreen ? "⤡" : "⤢"}</button>
+            <button className="pano-btn" onClick={toggleFullscreen} title={t("Во весь экран", "Fullscreen")}>{fullscreen ? "⤡" : "⤢"}</button>
           )}
           {editable && (
-            <button className={`pano-btn${edit ? " on" : ""}`} onClick={() => { setEdit(!edit); setSelectedId(null); setPlacing(null); }} title="Редактировать переходы">✏️</button>
+            <button className={`pano-btn${edit ? " on" : ""}`} onClick={() => { setEdit(!edit); setSelectedId(null); setPlacing(null); }} title={t("Редактировать переходы", "Edit transitions")}>✏️</button>
           )}
-          <button className="pano-btn close" onClick={onClose} title="Закрыть">✕</button>
+          <button className="pano-btn close" onClick={onClose} title={t("Закрыть", "Close")}>✕</button>
         </div>
       </div>
 
@@ -572,7 +578,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {selected ? (
             <>
               <div className="row" style={{ gap: 6 }}>
-                <input className="pano-input grow" value={selected.label} onChange={(e) => updateHotspot(selected.id, { label: e.target.value })} placeholder="Подпись" />
+                <input className="pano-input grow" value={selected.label} onChange={(e) => updateHotspot(selected.id, { label: e.target.value })} placeholder={t("Подпись", "Label")} />
                 <button className="pano-btn" onClick={() => setSelectedId(null)}>✕</button>
               </div>
               {i18nEnabled && (
@@ -584,9 +590,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                 />
               )}
               <select className="pano-input" value={selected.targetId ?? ""} onChange={(e) => updateHotspot(selected.id, { targetId: e.target.value || null })}>
-                <option value="">Без перехода (просто подпись)</option>
+                <option value="">{t("Без перехода (просто подпись)", "No transition (label only)")}</option>
                 {scenes.filter((s) => s.id !== scene.id).map((s) => (
-                  <option key={s.id} value={s.id}>Перейти: {s.title}</option>
+                  <option key={s.id} value={s.id}>{t("Перейти", "Go to")}: {s.title}</option>
                 ))}
               </select>
               {richNotes && !selected.targetId && (
@@ -594,7 +600,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   <textarea
                     className="pano-input"
                     rows={3}
-                    placeholder="Описание для карточки (необязательно)"
+                    placeholder={t("Описание для карточки (необязательно)", "Card description (optional)")}
                     value={selected.note ?? ""}
                     onChange={(e) => updateHotspot(selected.id, { note: e.target.value })}
                   />
@@ -609,7 +615,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   )}
                   <div className="row" style={{ gap: 6 }}>
                     <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
-                      {selected.photo ? "Заменить фото" : "+ Фото"}
+                      {selected.photo ? t("Заменить фото", "Replace photo") : t("+ Фото", "+ Photo")}
                       <input
                         type="file"
                         accept="image/*"
@@ -618,37 +624,37 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                       />
                     </label>
                     {selected.photo && (
-                      <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title="Убрать фото">✕ фото</button>
+                      <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title={t("Убрать фото", "Remove photo")}>✕ {t("фото", "photo")}</button>
                     )}
                   </div>
                   {neighborScenes().length > 0 && (
                     <button className="pano-btn wide" onClick={() => propagateNoteToNeighbors(selected)}>
-                      Показать и на соседних панорамах
+                      {t("Показать и на соседних панорамах", "Also show on neighboring panoramas")}
                     </button>
                   )}
                 </>
               )}
               <div className="row" style={{ gap: 6 }}>
                 <button className={`pano-btn wide${placing === selected.id ? " on" : ""}`} onClick={() => setPlacing(placing === selected.id ? null : selected.id)}>
-                  {placing === selected.id ? "Нажми на панораму…" : "Переставить"}
+                  {placing === selected.id ? t("Нажми на панораму…", "Tap the panorama…") : t("Переставить", "Reposition")}
                 </button>
-                <button className="pano-btn wide danger" onClick={() => deleteHotspot(selected.id)}>Удалить</button>
+                <button className="pano-btn wide danger" onClick={() => deleteHotspot(selected.id)}>{t("Удалить", "Delete")}</button>
               </div>
             </>
           ) : (
             <>
               <div className="row" style={{ gap: 6 }}>
                 <button className={`pano-btn wide${placing === "new" ? " on" : ""}`} onClick={() => setPlacing(placing === "new" ? null : "new")}>
-                  {placing === "new" ? "Нажми, куда поставить" : "+ Переход"}
+                  {placing === "new" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Переход", "+ Transition")}
                 </button>
                 {richNotes && (
                   <button className={`pano-btn wide${placing === "new-note" ? " on" : ""}`} onClick={() => setPlacing(placing === "new-note" ? null : "new-note")}>
-                    {placing === "new-note" ? "Нажми, куда поставить" : "+ Заметка"}
+                    {placing === "new-note" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Заметка", "+ Note")}
                   </button>
                 )}
               </div>
               <div className="row" style={{ gap: 6 }}>
-                <button className="pano-btn wide" onClick={saveStartView}>Запомнить вид</button>
+                <button className="pano-btn wide" onClick={saveStartView}>{t("Запомнить вид", "Remember view")}</button>
               </div>
             </>
           )}
@@ -656,7 +662,20 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       )}
 
       {scenes.length > 1 && (
-        <div className="pano-strip" data-hud onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          className="pano-strip"
+          data-hud
+          onPointerDown={(e) => e.stopPropagation()}
+          onWheel={(e) => {
+            // Скроллбар у полоски скрыт для чистого вида — без этого при
+            // большом числе панорам мышью просто нечем долистать до тех,
+            // что не влезли на экран (обычная вертикальная прокрутка колесом
+            // тут ничего не делает, полоска не выше экрана). Отдаём и
+            // вертикальный, и горизонтальный delta — трекпад уже шлёт
+            // горизонтальный сам, мышь — только вертикальный.
+            e.currentTarget.scrollLeft += e.deltaY || e.deltaX;
+          }}
+        >
           {scenes.map((s) => (
             <button key={s.id} className={`pano-chip${s.id === scene.id ? " on" : ""}`} onClick={() => goTo(s.id)}>{sceneTitle(s)}</button>
           ))}
@@ -669,7 +688,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           <div className="pano-note-body">
             <div className="pano-note-title">
               <span>{hotspotLabel(noteHotspot)}</span>
-              <button className="pano-note-close" onClick={() => setNoteHotspot(null)} aria-label="Закрыть">✕</button>
+              <button className="pano-note-close" onClick={() => setNoteHotspot(null)} aria-label={t("Закрыть", "Close")}>✕</button>
             </div>
             {hotspotNote(noteHotspot) && <div className="pano-note-text">{hotspotNote(noteHotspot)}</div>}
           </div>

@@ -61,6 +61,15 @@ const btnFs = document.getElementById("btn-fs") as HTMLButtonElement;
 // если pointerdown успел всплыть досюда.
 topBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 stripEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+// Скроллбар у полоски скрыт для чистого вида — без этого при большом числе
+// панорам мышью просто нечем долистать до тех, что не влезли на экран.
+stripEl.addEventListener(
+  "wheel",
+  (e) => {
+    stripEl.scrollLeft += e.deltaY || e.deltaX;
+  },
+  { passive: true },
+);
 
 let toastTimer = 0;
 function flash(text: string) {
