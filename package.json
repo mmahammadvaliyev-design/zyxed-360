@@ -7,6 +7,7 @@
     "predev": "npm run build:player",
     "dev": "vite",
     "build:player": "vite build --config vite.player.config.ts",
+    "postbuild:player": "node scripts/gen-player-assets.mjs",
     "prebuild": "npm run build:player",
     "build": "tsc && vite build",
     "postbuild": "node scripts/fix-offline-html.mjs",

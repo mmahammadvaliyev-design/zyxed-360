@@ -7,18 +7,21 @@
 // classic <script> — Chrome блокирует по file:// и <script type="module">, даже
 // если у него нет ни одного import/export (собранный Vite-бандл плеера — как раз
 // такой самодостаточный файл, так что classic-тег для него ничем не отличается).
+//
+// Файлы самого плеера (PLAYER_HTML/PLAYER_ASSETS) — не runtime fetch(), а
+// встроенные на этапе СБОРКИ приложения строки (см. scripts/gen-player-assets.mjs,
+// шаг postbuild:player). Раньше здесь был fetch("./player/index.html") —
+// работал на обычном хостинге и через npm run dev, но при открытии самого
+// ПРИЛОЖЕНИЯ (не тура) напрямую с диска (см. scripts/fix-offline-html.mjs)
+// fetch() локальных файлов браузер блокирует точно так же, как раньше не
+// открывались опубликованные туры — экспорт падал с "Failed to fetch".
 import { zipSync } from "fflate";
 import { db, type Hotspot } from "../db";
 import type { SceneMeta, TourManifest } from "../engine/types";
 import { getFeatureSnapshot, isFeatureEnabled } from "../features";
 import { getBranding } from "../branding";
 import { getAppLanguage } from "../appLanguage";
-
-async function fetchBinary(url: string): Promise<Uint8Array> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Не удалось загрузить ${url} (${res.status})`);
-  return new Uint8Array(await res.arrayBuffer());
-}
+import { PLAYER_ASSETS, PLAYER_HTML } from "./playerAssets.generated";
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -29,16 +32,10 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-// Разбираем index.html плеера, чтобы найти его js/css файлы — так не важно, как Vite
-// назвал хэшированные assets/*.js при сборке.
-async function collectPlayerAssets(): Promise<{ js: string[]; css: string[]; assets: Record<string, Uint8Array> }> {
-  const base = "./player/";
-  const htmlRes = await fetch(base + "index.html");
-  if (!htmlRes.ok) {
-    throw new Error("Плеер тура не собран. Выполните `npm run build:player` и повторите экспорт.");
-  }
-  const html = await htmlRes.text();
-  const doc = new DOMParser().parseFromString(html, "text/html");
+// Разбираем встроенный index.html плеера, чтобы найти его js/css файлы — так
+// не важно, как Vite назвал хэшированные assets/*.js при сборке.
+function collectPlayerAssets(): { js: string[]; css: string[]; assets: Record<string, Uint8Array> } {
+  const doc = new DOMParser().parseFromString(PLAYER_HTML, "text/html");
   const js: string[] = [];
   const css: string[] = [];
   doc.querySelectorAll("script[src]").forEach((el) => {
@@ -50,7 +47,13 @@ async function collectPlayerAssets(): Promise<{ js: string[]; css: string[]; ass
     if (href && !/^(https?:)?\/\//.test(href)) css.push(href.replace(/^\.\//, ""));
   });
   const assets: Record<string, Uint8Array> = {};
-  for (const ref of [...js, ...css]) assets[ref] = await fetchBinary(base + ref);
+  for (const ref of [...js, ...css]) {
+    const content = PLAYER_ASSETS[ref];
+    if (content === undefined) {
+      throw new Error("Плеер тура не собран. Выполните `npm run build:player` и повторите экспорт.");
+    }
+    assets[ref] = new TextEncoder().encode(content);
+  }
   return { js, css, assets };
 }
 
@@ -145,7 +148,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     mapImage: isFeatureEnabled("map") && project.mapImage ? await blobToDataUrl(project.mapImage) : undefined,
   };
 
-  const { js, css, assets } = await collectPlayerAssets();
+  const { js, css, assets } = collectPlayerAssets();
   // Заголовки/подписи переходов — пользовательский текст; экранируем "<", чтобы
   // случайное "</script>" в подписи не сломало встроенный JSON и не превратилось
   // в разметку/скрипт на странице тура.

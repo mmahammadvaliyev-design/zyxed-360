@@ -2,5 +2,6 @@ node_modules
 dist
 dist-ssr
 public/player
+src/export/playerAssets.generated.ts
 *.local
 .DS_Store
