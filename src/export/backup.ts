@@ -22,11 +22,14 @@ interface BackupScene {
   pitch: number;
   fov: number;
   hotspots: BackupHotspot[];
+  mapX?: number;
+  mapY?: number;
 }
 interface BackupManifest {
   version: number;
   title: string;
   scenes: BackupScene[];
+  hasMapImage?: boolean; // план объекта, если был — файл map.jpg в архиве
 }
 
 export async function exportProjectBackup(projectId: string): Promise<{ blob: Blob; filename: string }> {
@@ -60,10 +63,19 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
       pitch: s.pitch,
       fov: s.fov,
       hotspots,
+      mapX: s.mapX,
+      mapY: s.mapY,
     });
   }
 
-  const manifest: BackupManifest = { version: BACKUP_VERSION, title: project.title, scenes: backupScenes };
+  if (project.mapImage) files["map.jpg"] = new Uint8Array(await project.mapImage.arrayBuffer());
+
+  const manifest: BackupManifest = {
+    version: BACKUP_VERSION,
+    title: project.title,
+    scenes: backupScenes,
+    hasMapImage: !!project.mapImage,
+  };
   files["backup.json"] = new TextEncoder().encode(JSON.stringify(manifest));
 
   const zipped = zipSync(files, { level: 6 });
@@ -96,6 +108,11 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
   const project = await createProject(title);
   const idMap = new Map(manifest.scenes.map((s) => [s.id, uid()]));
 
+  if (manifest.hasMapImage) {
+    const mapBytes = files["map.jpg"];
+    if (mapBytes) await db.projects.update(project.id, { mapImage: new Blob([new Uint8Array(mapBytes)], { type: "image/jpeg" }) });
+  }
+
   for (const s of manifest.scenes) {
     const imgBytes = files[`images/${s.id}.jpg`];
     const thumbBytes = files[`thumbs/${s.id}.jpg`];
@@ -123,6 +140,8 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
       pitch: s.pitch,
       fov: s.fov,
       hotspots,
+      mapX: s.mapX,
+      mapY: s.mapY,
     });
   }
   return project;

@@ -8,6 +8,10 @@ export interface Project {
   title: string;
   createdAt: string;
   updatedAt: string;
+  // Функция «Карта тура»: план объекта (любая загруженная картинка), одна
+  // на весь проект — точки съёмки расставляются по ней вручную (см.
+  // SceneMeta.mapX/mapY в engine/types.ts).
+  mapImage?: Blob;
 }
 
 // Одна панорама тура. Картинка и превью лежат прямо в базе как Blob —

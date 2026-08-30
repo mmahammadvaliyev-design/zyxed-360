@@ -35,10 +35,17 @@ app.innerHTML = `
         <button class="pano-btn" id="btn-rotate" title="Автоповорот">↻</button>
         <button class="pano-btn" id="btn-gyro" title="Поворот по наклону телефона" hidden>🧭</button>
         <button class="pano-btn" id="btn-fs" title="Во весь экран" hidden>⤢</button>
+        <button class="pano-btn" id="btn-map" title="Карта тура" hidden>🗺️</button>
       </div>
     </div>
     <div class="pano-strip" data-hud id="strip" hidden></div>
     <div class="pano-toast" id="toast" hidden></div>
+    <div class="pano-map" data-hud id="map-overlay" hidden>
+      <button class="pano-btn close pano-map-close" id="map-close">✕</button>
+      <div class="pano-map-frame" id="map-frame">
+        <img id="map-img" alt="" />
+      </div>
+    </div>
   </div>
 `;
 
@@ -55,12 +62,18 @@ const btnSlideshow = document.getElementById("btn-slideshow") as HTMLButtonEleme
 const btnRotate = document.getElementById("btn-rotate") as HTMLButtonElement;
 const btnGyro = document.getElementById("btn-gyro") as HTMLButtonElement;
 const btnFs = document.getElementById("btn-fs") as HTMLButtonElement;
+const btnMap = document.getElementById("btn-map") as HTMLButtonElement;
+const mapOverlay = document.getElementById("map-overlay") as HTMLDivElement;
+const mapClose = document.getElementById("map-close") as HTMLButtonElement;
+const mapFrame = document.getElementById("map-frame") as HTMLDivElement;
+const mapImgEl = document.getElementById("map-img") as HTMLImageElement;
 
 // Без этого клик по кнопкам интерфейса перехватывается жестом на панораме:
 // wrapEl.setPointerCapture() ниже переносит последующий click на себя же,
 // если pointerdown успел всплыть досюда.
 topBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 stripEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+mapOverlay.addEventListener("pointerdown", (e) => e.stopPropagation());
 // Скроллбар у полоски скрыт для чистого вида — без этого при большом числе
 // панорам мышью просто нечем долистать до тех, что не влезли на экран.
 stripEl.addEventListener(
@@ -95,6 +108,7 @@ let gyroOn = false;
 const gyroState = { yaw: 0, pitch: 0, offset: 0, init: false };
 const keys = new Set<string>();
 const hotspotEls = new Map<string, HTMLElement>();
+const mapPinEls = new Map<string, HTMLElement>();
 const pointers = new Map<number, { x: number; y: number }>();
 const drag = { active: false, x: 0, y: 0, moved: 0, pinch: 0 };
 let downTarget: HTMLElement | null = null;
@@ -221,6 +235,35 @@ function renderStrip() {
   });
 }
 
+// Функция «Карта тура»: план объекта с точками съёмки — только те сцены,
+// для которых точка была вручную расставлена в редакторе (mapX/mapY заданы).
+function renderMapPins() {
+  mapFrame.querySelectorAll(".pano-map-pin").forEach((el) => el.remove());
+  mapPinEls.clear();
+  scenes.forEach((s, i) => {
+    if (s.mapX == null || s.mapY == null) return;
+    const pin = document.createElement("button");
+    pin.className = `pano-map-pin${i === currentIndex ? " on" : ""}`;
+    pin.style.left = `${s.mapX}%`;
+    pin.style.top = `${s.mapY}%`;
+    pin.title = sceneTitle(s);
+    const label = document.createElement("span");
+    label.className = "pano-map-pin-label";
+    label.textContent = sceneTitle(s);
+    pin.appendChild(label);
+    pin.addEventListener("click", () => {
+      goTo(i);
+      mapOverlay.hidden = true;
+    });
+    mapFrame.appendChild(pin);
+    mapPinEls.set(s.id, pin);
+  });
+}
+
+function updateMapPinHighlight() {
+  mapPinEls.forEach((el, id) => el.classList.toggle("on", id === currentScene()?.id));
+}
+
 async function goTo(index: number) {
   currentIndex = index;
   const scene = scenes[index];
@@ -232,6 +275,7 @@ async function goTo(index: number) {
   subEl.textContent = `${index + 1} / ${scenes.length}`;
   renderHotspots(scene);
   renderStrip();
+  updateMapPinHighlight();
 
   view.yaw = scene.yaw;
   view.pitch = clamp(scene.pitch, -MAX_PITCH, MAX_PITCH);
@@ -428,6 +472,9 @@ if (GYRO_SUPPORTED) {
   });
 }
 
+btnMap.addEventListener("click", () => { mapOverlay.hidden = false; });
+mapClose.addEventListener("click", () => { mapOverlay.hidden = true; });
+
 if (typeof document.documentElement.requestFullscreen === "function") {
   btnFs.hidden = false;
   btnFs.addEventListener("click", () => {
@@ -514,6 +561,13 @@ function startTour(data: TourManifest) {
   topBar.hidden = false;
   if (manifest.features?.slideshow && scenes.length > 1) btnSlideshow.hidden = false;
   lang = manifest.lang === "en" ? "en" : "ru";
+  // Функция «Карта тура»: план — только если был загружен и функция была
+  // включена на момент экспорта (manifest.mapImage, см. bundle.ts).
+  if (manifest.mapImage) {
+    mapImgEl.src = manifest.mapImage;
+    btnMap.hidden = false;
+    renderMapPins();
+  }
   // Функция «Брендинг тура»: логотип/подпись присутствуют в манифесте,
   // только если функция была включена на момент экспорта (см. bundle.ts).
   const brand = manifest.branding;

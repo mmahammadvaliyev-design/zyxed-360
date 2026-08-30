@@ -8,6 +8,7 @@ import { downloadBlob, exportProjectZip, slugify } from "../export/bundle";
 import { exportProjectBackup } from "../export/backup";
 import { renderQrToCanvas } from "../qr";
 import PanoViewer from "../components/PanoViewer";
+import MapEditor from "../components/MapEditor";
 import { useEffect } from "react";
 import { useFeature } from "../features";
 import { tNow, useT } from "../i18n";
@@ -57,6 +58,7 @@ export default function Editor() {
   const compression = useFeature("compression");
   const dragReorder = useFeature("dragReorder");
   const i18n = useFeature("i18n");
+  const mapFeature = useFeature("map");
   const [qrUrl, setQrUrl] = useState("");
   const [qrError, setQrError] = useState<string | null>(null);
   const [hasQr, setHasQr] = useState(false);
@@ -342,6 +344,18 @@ export default function Editor() {
     await touch();
   }
 
+  // Функция «Карта тура»: план — одна картинка на весь проект (как логотип
+  // брендинга, но здесь Blob в самом проекте, не data: URI в localStorage —
+  // план обычно крупнее и относится к конкретному туру).
+  async function updateMapImage(image: Blob | undefined) {
+    await db.projects.update(projectId, { mapImage: image, updatedAt: new Date().toISOString() });
+  }
+
+  async function updateScenePos(sceneId: string, mapX: number, mapY: number) {
+    await db.scenes.update(sceneId, { mapX, mapY });
+    await touch();
+  }
+
   async function doExport() {
     setNote(null);
     setBusy(t("Собираю файлы тура…", "Assembling tour files…"));
@@ -519,6 +533,16 @@ export default function Editor() {
             </div>
           )}
 
+          {mapFeature && (
+            <MapEditor
+              project={project}
+              scenes={list}
+              onUpdateMapImage={updateMapImage}
+              onUpdateScenePos={updateScenePos}
+              onOpenScene={setOpenId}
+            />
+          )}
+
           <h2>{t("Панорамы", "Panoramas")} · {list.length} {t("шт", "pcs")} · {sizeMb(list)} {t("МБ", "MB")}</h2>
           {displayList.map((s, i) => (
             <div
@@ -573,7 +597,7 @@ export default function Editor() {
       )}
 
       {openScene && (
-        <PanoViewer scenes={list} startId={openScene.id} editable onClose={() => setOpenId(null)} onChange={saveScene} />
+        <PanoViewer scenes={list} startId={openScene.id} editable onClose={() => setOpenId(null)} onChange={saveScene} mapImage={project.mapImage} />
       )}
     </div>
   );

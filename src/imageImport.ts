@@ -9,6 +9,7 @@ const MAX_WIDTH = 4096; // шире хранить незачем — на эк�
 const THUMB_WIDTH = 480;
 const NOTE_PHOTO_MAX_WIDTH = 1600; // фото в карточке заметки, не полноэкранная панорама
 const LOGO_MAX_WIDTH = 240; // маленький водяной знак в углу плеера
+const MAP_IMAGE_MAX_WIDTH = 2400; // план объекта — крупнее лого, но не полное разрешение скана
 
 export interface PreparedImage {
   image: Blob;
@@ -96,6 +97,25 @@ export async function prepareBrandingLogo(file: Blob): Promise<string> {
     const w = Math.min(width, LOGO_MAX_WIDTH);
     const h = Math.max(1, Math.round((w * height) / width));
     return scaleTo(bmp, w, h).toDataURL("image/png");
+  } finally {
+    closeBitmap(bmp);
+  }
+}
+
+// Функция «Карта тура» — план объекта, храним как Blob в БД проекта (не
+// data: URI в localStorage, как логотип: план обычно крупнее и один на тур,
+// а не общий на всё приложение).
+export async function prepareMapImage(file: Blob): Promise<Blob> {
+  const bmp = await loadBitmap(file);
+  const { width, height } = bitmapSize(bmp);
+  if (!width || !height) {
+    closeBitmap(bmp);
+    throw new Error("Пустое изображение");
+  }
+  try {
+    if (width <= MAP_IMAGE_MAX_WIDTH) return file;
+    const h = Math.max(1, Math.round((MAP_IMAGE_MAX_WIDTH * height) / width));
+    return await canvasToBlob(scaleTo(bmp, MAP_IMAGE_MAX_WIDTH, h), 0.88);
   } finally {
     closeBitmap(bmp);
   }

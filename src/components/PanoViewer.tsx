@@ -27,13 +27,14 @@ interface Props {
   editable: boolean; // редактор проекта или просмотр «начисто»
   onClose: () => void;
   onChange?: (scene: Scene) => void; // сохранить изменённую сцену (нужен, если editable)
+  mapImage?: Blob; // Функция «Карта тура»: план объекта, один на весь проект
 }
 
 const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
 const TAP_SLOP = 8;
 
-export default function PanoViewer({ scenes, startId, editable, onClose, onChange }: Props) {
+export default function PanoViewer({ scenes, startId, editable, onClose, onChange, mapImage }: Props) {
   const t = useT();
   const [currentId, setCurrentId] = useState(startId);
   const [loading, setLoading] = useState(true);
@@ -54,6 +55,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const branding = useBranding();
   const i18nEnabled = useFeature("i18n");
   const lang = useAppLanguage();
+  const mapEnabled = useFeature("map");
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapUrl, setMapUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!mapImage) {
+      setMapUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(mapImage);
+    setMapUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [mapImage]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -566,6 +580,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {canFullscreen && (
             <button className="pano-btn" onClick={toggleFullscreen} title={t("Во весь экран", "Fullscreen")}>{fullscreen ? "⤡" : "⤢"}</button>
           )}
+          {mapEnabled && mapUrl && (
+            <button className={`pano-btn${mapOpen ? " on" : ""}`} onClick={() => setMapOpen(!mapOpen)} title={t("Карта тура", "Tour map")}>🗺️</button>
+          )}
           {editable && (
             <button className={`pano-btn${edit ? " on" : ""}`} onClick={() => { setEdit(!edit); setSelectedId(null); setPlacing(null); }} title={t("Редактировать переходы", "Edit transitions")}>✏️</button>
           )}
@@ -703,6 +720,28 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       )}
 
       {toast && <div className="pano-toast">{toast}</div>}
+
+      {mapOpen && mapUrl && (
+        <div className="pano-map" data-hud onPointerDown={(e) => e.stopPropagation()}>
+          <button className="pano-btn close pano-map-close" onClick={() => setMapOpen(false)} title={t("Закрыть", "Close")}>✕</button>
+          <div className="pano-map-frame">
+            <img src={mapUrl} alt="" />
+            {scenes
+              .filter((s) => s.mapX != null && s.mapY != null)
+              .map((s) => (
+                <button
+                  key={s.id}
+                  className={`pano-map-pin${s.id === scene.id ? " on" : ""}`}
+                  style={{ left: `${s.mapX}%`, top: `${s.mapY}%` }}
+                  onClick={() => { goTo(s.id); setMapOpen(false); }}
+                  title={sceneTitle(s)}
+                >
+                  <span className="pano-map-pin-label">{sceneTitle(s)}</span>
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

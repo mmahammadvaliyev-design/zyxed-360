@@ -116,6 +116,16 @@ export const FEATURES: FeatureFlag[] = [
       "The \"Backup\" button (download the whole editable project — panoramas, transitions, notes) and \"Import backup\" on the home screen — move a tour to another device or browser, not just view the finished export.",
     defaultOn: false,
   },
+  {
+    id: "map",
+    label: "Карта тура",
+    labelEn: "Tour map",
+    description:
+      "Загружаете план объекта (любая картинка) в редакторе и вручную расставляете на нём точки съёмки, перетаскивая. Кнопка «🗺️ Карта» появляется и в приложении, и в опубликованном туре — клик по точке переходит на нужную панораму.",
+    descriptionEn:
+      "Upload a site plan (any image) in the editor and manually place shooting points on it by dragging. A \"🗺️ Map\" button appears both in the app and in the published tour — clicking a point jumps to that panorama.",
+    defaultOn: false,
+  },
 ];
 
 const STORAGE_KEY = "zyxed360:features";

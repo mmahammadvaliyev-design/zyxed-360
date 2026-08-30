@@ -133,6 +133,8 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
           pitch: s.pitch,
           fov: s.fov,
           hotspots: await exportHotspots(s.hotspots),
+          mapX: s.mapX,
+          mapY: s.mapY,
         }),
       ),
     ),
@@ -140,6 +142,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     features: getFeatureSnapshot(),
     branding: isFeatureEnabled("branding") ? getBranding() : undefined,
     lang: getAppLanguage(),
+    mapImage: isFeatureEnabled("map") && project.mapImage ? await blobToDataUrl(project.mapImage) : undefined,
   };
 
   const { js, css, assets } = await collectPlayerAssets();

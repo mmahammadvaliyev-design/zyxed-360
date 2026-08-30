@@ -214,3 +214,64 @@
   border-radius: 12px;
   padding: 9px 14px;
 }
+
+/* Функция «Карта тура»: план объекта во весь экран поверх панорамы — точки
+   съёмки поверх картинки, клик по точке переходит на панораму и закрывает
+   карту. Тот же .pano-map-pin используется и в редакторе (Editor.tsx) для
+   ручной расстановки — общий вид, там ещё и draggable. */
+.pano-map {
+  position: absolute; inset: 0;
+  z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(64px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(4, 6, 12, 0.92);
+  backdrop-filter: blur(4px);
+}
+/* Плеер (player/main.ts) держит этот блок в разметке всегда и переключает
+   через атрибут hidden, а не условный рендер — без этого правила
+   display:flex выше перебивает браузерный [hidden]{display:none} (авторский
+   CSS всегда сильнее UA-стиля), и карта была бы видна сразу при загрузке. */
+.pano-map[hidden] { display: none; }
+.pano-map-frame {
+  position: relative;
+  max-width: 100%; max-height: 100%;
+  line-height: 0;
+}
+.pano-map-frame img { display: block; max-width: 100%; max-height: calc(100vh - 120px); border-radius: 10px; }
+.pano-map-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: rgba(8, 14, 24, 0.75);
+  border: 2px solid #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  padding: 0;
+}
+.pano-map-pin::before {
+  content: "";
+  position: absolute; inset: 0; margin: auto;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #4ee08a;
+}
+.pano-map-pin.on { background: #4ee08a; border-color: #fff; }
+.pano-map-pin.on::before { background: #04080f; }
+.pano-map-pin.dragging { z-index: 2; cursor: grabbing; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6); }
+.pano-map-pin-label {
+  position: absolute;
+  top: calc(100% + 4px); left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(5, 6, 12, 0.75);
+  padding: 2px 7px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+.pano-map-close {
+  position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px;
+  z-index: 21;
+}
