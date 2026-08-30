@@ -62,7 +62,7 @@
 .pano-spot {
   position: absolute;
   top: 0; left: 0;
-  width: 40px; height: 40px;
+  width: 80px; height: 80px;
   padding: 0;
   border: none;
   background: none;
@@ -76,26 +76,26 @@
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: rgba(8, 14, 24, 0.55);
-  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border: 3px solid rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(6px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 }
 .pano-spot-dot::before {
   content: "";
-  width: 9px; height: 9px;
+  width: 18px; height: 18px;
   border-radius: 50%;
   background: #4ee08a;
-  box-shadow: 0 0 8px rgba(78, 224, 138, 0.85);
+  box-shadow: 0 0 16px rgba(78, 224, 138, 0.85);
 }
 .pano-spot-dot::after {
   content: "";
-  position: absolute; inset: -1.5px;
+  position: absolute; inset: -3px;
   border-radius: 50%;
-  border: 1.5px solid rgba(78, 224, 138, 0.55);
+  border: 3px solid rgba(78, 224, 138, 0.55);
   animation: pano-ping 2.4s cubic-bezier(0.2, 0.65, 0.35, 1) infinite;
 }
 .pano-spot.note .pano-spot-dot { border-color: rgba(255, 255, 255, 0.4); }
-.pano-spot.note .pano-spot-dot::before { width: 5px; height: 5px; background: rgba(255, 255, 255, 0.85); box-shadow: none; }
+.pano-spot.note .pano-spot-dot::before { width: 10px; height: 10px; background: rgba(255, 255, 255, 0.85); box-shadow: none; }
 .pano-spot.note .pano-spot-dot::after { display: none; }
 .pano-spot.sel .pano-spot-dot { border-color: #4ee08a; box-shadow: 0 4px 20px rgba(78, 224, 138, 0.4); }
 .pano-spot.sel .pano-spot-dot::after { display: none; }
