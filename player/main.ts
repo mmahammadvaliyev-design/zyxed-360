@@ -225,8 +225,8 @@ function openModel(pdf: NotePdf) {
   const hint = document.createElement("div");
   hint.className = "pano-model-hint";
   hint.textContent = ru
-    ? "Вращение — перетаскивание · масштаб — колесо/щипок · сдвиг — правая кнопка/два пальца"
-    : "Rotate — drag · zoom — wheel/pinch · pan — right button/two fingers";
+    ? "Вращение — перетаскивание · масштаб — колесо/щипок · сдвиг — правая кнопка/два пальца · расстояния — «📏 Замер»"
+    : "Rotate — drag · zoom — wheel/pinch · pan — right button/two fingers · distances — “📏 Measure”";
   hint.hidden = true;
   overlay.append(bar, stage, msg, hint);
   wrapEl.appendChild(overlay);
@@ -252,6 +252,7 @@ function openModel(pdf: NotePdf) {
       msg.hidden = true;
       hint.hidden = false;
     },
+    { lang: ru ? "ru" : "en" },
   );
 }
 

@@ -169,6 +169,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           buffer,
           (message) => { if (!cancelled) setModelStatus({ error: describeModelError(message, getAppLanguage() !== "en") }); },
           () => { if (!cancelled) setModelStatus("ready"); },
+          { lang: getAppLanguage() === "en" ? "en" : "ru" },
         );
       } catch {
         if (!cancelled) setModelStatus({ error: describeModelError("", getAppLanguage() !== "en") });
@@ -924,7 +925,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           <div className="pano-model-stage" ref={modelStageRef} />
           {modelStatus === "loading" && <div className="pano-model-msg">{t("Загружаю модель…", "Loading model…")}</div>}
           {typeof modelStatus === "object" && <div className="pano-model-msg err">{modelStatus.error}</div>}
-          {modelStatus === "ready" && <div className="pano-model-hint">{t("Вращение — перетаскивание · масштаб — колесо/щипок · сдвиг — правая кнопка/два пальца", "Rotate — drag · zoom — wheel/pinch · pan — right button/two fingers")}</div>}
+          {modelStatus === "ready" && <div className="pano-model-hint">{t("Вращение — перетаскивание · масштаб — колесо/щипок · сдвиг — правая кнопка/два пальца · расстояния — «📏 Замер»", "Rotate — drag · zoom — wheel/pinch · pan — right button/two fingers · distances — “📏 Measure”")}</div>}
         </div>
       )}
 

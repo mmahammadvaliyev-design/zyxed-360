@@ -74,6 +74,7 @@ export interface Viewer3dApi {
     data: ArrayBuffer,
     onError: (message: string) => void,
     onReady?: () => void,
+    opts?: { lang?: "ru" | "en" },
   ): { dispose(): void };
 }
 declare global {
