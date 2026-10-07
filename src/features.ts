@@ -31,9 +31,9 @@ export const FEATURES: FeatureFlag[] = [
     label: "Богатые заметки",
     labelEn: "Rich notes",
     description:
-      "Инфо-точки (без перехода на другую панораму) открывают карточку с описанием, фото и PDF-файлами (их можно скачать) вместо короткой всплывающей подписи на пару секунд.",
+      "Инфо-точки (без перехода на другую панораму) открывают карточку с описанием, фото и вложенными файлами — PDF, чертежи DWG, 3D-модели (их можно скачать) вместо короткой всплывающей подписи на пару секунд.",
     descriptionEn:
-      "Info points (without a transition to another panorama) open a card with a description, a photo and PDF files (downloadable) instead of a short popup label for a couple of seconds.",
+      "Info points (without a transition to another panorama) open a card with a description, a photo and attached files — PDF, DWG drawings, 3D models (downloadable) instead of a short popup label for a couple of seconds.",
     defaultOn: false,
   },
   {

@@ -18,6 +18,7 @@ import {
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../src/engine/gyro";
 import { loadBitmap, bitmapSize, closeBitmap } from "../src/engine/bitmap";
 import type { Hotspot, NotePdf, SceneMeta, TourManifest } from "../src/engine/types";
+import { fileIcon, mimeForName } from "../src/engine/files";
 
 const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
@@ -161,7 +162,7 @@ function closeNote() {
   noteEl = null;
 }
 
-// PDF в манифесте — data: URI. Скачиваем через Blob + object URL: так
+// Вложение в манифесте — data: URI. Скачиваем через Blob + object URL: так
 // работает и под file://, и с большими файлами (data: в href упирается в
 // лимиты браузеров).
 function downloadPdf(pdf: NotePdf) {
@@ -169,7 +170,7 @@ function downloadPdf(pdf: NotePdf) {
   const bin = atob(pdf.url.slice(pdf.url.indexOf(",") + 1));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeForName(pdf.name) }));
   const a = document.createElement("a");
   a.href = url;
   a.download = pdf.name;
@@ -221,7 +222,7 @@ function openNote(h: Hotspot) {
     btn.className = "pano-note-pdf";
     const name = document.createElement("span");
     name.className = "pano-note-pdf-name";
-    name.textContent = "📄 " + pdf.name;
+    name.textContent = fileIcon(pdf.name) + " " + pdf.name;
     const dl = document.createElement("span");
     dl.className = "pano-note-pdf-dl";
     dl.textContent = "⬇ " + (lang === "en" ? "Download" : "Скачать");

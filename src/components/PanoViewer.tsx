@@ -15,7 +15,8 @@ import {
   type Basis,
   type View,
 } from "../engine/pano";
-import { bitmapSize, checkPdf, closeBitmap, loadBitmap, PDF_MAX_BYTES, prepareHotspotPhoto } from "../imageImport";
+import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
+import { ATTACHMENT_MAX_BYTES, checkAttachment, fileIcon } from "../engine/files";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
 import { useFeature } from "../features";
 import { useBranding } from "../branding";
@@ -548,18 +549,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     updateHotspot(hotspotId, { photo });
   }
 
-  // PDF-вложения заметки: можно прикрепить несколько, каждый скачивается
-  // отдельной кнопкой на карточке.
+  // Вложения заметки (PDF, DWG, 3D-модели — любой файл): можно прикрепить
+  // несколько, каждый скачивается отдельной кнопкой на карточке.
   function addNotePdfs(hotspotId: string, files: FileList | null) {
     if (!files?.length) return;
     const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
     const added: NotePdf[] = [];
     for (const file of Array.from(files)) {
-      const problem = checkPdf(file);
-      if (problem === "not-pdf") { flash(t(`«${file.name}» — не PDF`, `"${file.name}" is not a PDF`)); continue; }
+      const problem = checkAttachment(file);
+      if (problem === "blocked") { flash(t(`«${file.name}» — такой тип файла прикрепить нельзя`, `"${file.name}" — this file type can't be attached`)); continue; }
+      if (problem === "empty") { flash(t(`«${file.name}» — пустой файл`, `"${file.name}" is empty`)); continue; }
       if (problem === "too-big") {
-        const mb = Math.round(PDF_MAX_BYTES / 1024 / 1024);
-        flash(t(`«${file.name}» больше ${mb} МБ — сожмите PDF`, `"${file.name}" is over ${mb} MB — compress the PDF`));
+        const mb = Math.round(ATTACHMENT_MAX_BYTES / 1024 / 1024);
+        flash(t(`«${file.name}» больше ${mb} МБ — заархивируйте или сожмите`, `"${file.name}" is over ${mb} MB — zip or compress it`));
         continue;
       }
       added.push({ name: file.name, data: file });
@@ -596,7 +598,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         const key = `${h.label} ${h.note ?? ""} ${(h.pdfs ?? []).map((x) => x.name).join("|")}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const extras = [h.photo ? "🖼" : "", h.pdfs?.length ? `📄${h.pdfs.length}` : ""].filter(Boolean).join(" ");
+        const extras = [h.photo ? "🖼" : "", h.pdfs?.length ? `📎${h.pdfs.length}` : ""].filter(Boolean).join(" ");
         out.push({ key, text: `${h.label} · ${s.title}${extras ? " " + extras : ""}`, hotspot: h });
       }
     }
@@ -748,10 +750,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   </div>
                   <div className="row" style={{ gap: 6 }}>
                     <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
-                      {t("+ PDF", "+ PDF")}
+                      {t("+ Файл (PDF, DWG, 3D…)", "+ File (PDF, DWG, 3D…)")}
                       <input
                         type="file"
-                        accept="application/pdf,.pdf"
                         multiple
                         style={{ display: "none" }}
                         onChange={(e) => { addNotePdfs(selected.id, e.target.files); e.target.value = ""; }}
@@ -760,8 +761,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   </div>
                   {selected.pdfs?.map((pdf, i) => (
                     <div key={i} className="row" style={{ gap: 6 }}>
-                      <span className="pano-pdf-name grow" title={pdf.name}>📄 {pdf.name}</span>
-                      <button className="pano-btn" onClick={() => removeNotePdf(selected.id, i)} title={t("Убрать PDF", "Remove PDF")}>✕</button>
+                      <span className="pano-pdf-name grow" title={pdf.name}>{fileIcon(pdf.name)} {pdf.name}</span>
+                      <button className="pano-btn" onClick={() => removeNotePdf(selected.id, i)} title={t("Убрать файл", "Remove file")}>✕</button>
                     </div>
                   ))}
                   {neighborScenes().length > 0 && (
@@ -838,7 +839,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             {noteHotspot.note && <div className="pano-note-text">{noteHotspot.note}</div>}
             {noteHotspot.pdfs?.map((pdf, i) => (
               <button key={i} className="pano-note-pdf" onClick={() => downloadPdf(pdf)}>
-                <span className="pano-note-pdf-name">📄 {pdf.name}</span>
+                <span className="pano-note-pdf-name">{fileIcon(pdf.name)} {pdf.name}</span>
                 <span className="pano-note-pdf-dl">⬇ {t("Скачать", "Download")}</span>
               </button>
             ))}
