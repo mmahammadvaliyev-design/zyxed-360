@@ -1,9 +1,6 @@
-import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FEATURES, setFeatureEnabled, useFeature, type FeatureFlag } from "../features";
-import { isDefaultLogo, setBranding, useBranding } from "../branding";
 import { setAppLanguage, useAppLanguage } from "../appLanguage";
-import { prepareBrandingLogo } from "../imageImport";
 import { useT } from "../i18n";
 
 function FeatureRow({ feature }: { feature: FeatureFlag }) {
@@ -26,71 +23,6 @@ function FeatureRow({ feature }: { feature: FeatureFlag }) {
       >
         <span className="switch-thumb" />
       </button>
-    </div>
-  );
-}
-
-// Брендинг тура: логотип и подпись в углу опубликованных туров. Всегда
-// включён; по умолчанию — логотип ZYXED, можно заменить своим.
-function BrandingEditor() {
-  const t = useT();
-  const branding = useBranding();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function pickLogo(file: File | undefined) {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const logo = await prepareBrandingLogo(file);
-      setBranding({ logo });
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
-  return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <b>{t("Брендинг тура", "Tour branding")}</b>
-      <p className="muted" style={{ margin: "4px 0 10px", lineHeight: 1.5, fontSize: 13 }}>
-        {t(
-          "Логотип и подпись в углу каждого опубликованного тура (и в предпросмотре). По умолчанию — логотип ZYXED Engineering; можно заменить своим — одна пара на все туры.",
-          "Logo and caption in the corner of every published tour (and in the preview). ZYXED Engineering logo by default; you can replace it with your own — one pair for all tours.",
-        )}
-      </p>
-      <div className="row" style={{ gap: 10, alignItems: "center" }}>
-        <div
-          style={{
-            width: 56, height: 56, borderRadius: 10, flexShrink: 0,
-            background: "#0a1420", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
-          }}
-        >
-          {branding.logo ? (
-            <img src={branding.logo} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-          ) : (
-            <span className="muted" style={{ fontSize: 10 }}>{t("нет лого", "no logo")}</span>
-          )}
-        </div>
-        <div className="grow">
-          <label className="ghost small" style={{ cursor: "pointer", display: "inline-block" }}>
-            {busy ? t("Загружаю…", "Uploading…") : t("Заменить логотип", "Replace logo")}
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pickLogo(e.target.files?.[0])} />
-          </label>
-          {!isDefaultLogo(branding.logo) && (
-            <button className="ghost small" style={{ marginLeft: 6 }} onClick={() => setBranding({ logo: undefined })}>
-              {t("↺ логотип ZYXED", "↺ ZYXED logo")}
-            </button>
-          )}
-        </div>
-      </div>
-      <input
-        type="text"
-        placeholder={t("Подпись (необязательно) — например «ZYXED Engineering»", "Caption (optional) — e.g. \"ZYXED Engineering\"")}
-        value={branding.text ?? ""}
-        onChange={(e) => setBranding({ text: e.target.value })}
-        style={{ marginTop: 10 }}
-      />
     </div>
   );
 }
@@ -141,7 +73,6 @@ export default function Settings() {
       {FEATURES.map((f) => (
         <FeatureRow key={f.id} feature={f} />
       ))}
-      <BrandingEditor />
     </div>
   );
 }
