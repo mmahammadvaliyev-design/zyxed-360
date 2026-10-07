@@ -99,6 +99,16 @@
 .pano-spot.note .pano-spot-dot::after { display: none; }
 .pano-spot.sel .pano-spot-dot { border-color: #4ee08a; box-shadow: 0 4px 20px rgba(78, 224, 138, 0.4); }
 .pano-spot.sel .pano-spot-dot::after { display: none; }
+
+/* Same marker, scaled down for phones — at 80px it reads as roughly half
+   the screen width on a narrow viewport. */
+@media (max-width: 480px) {
+  .pano-spot { width: 48px; height: 48px; }
+  .pano-spot-dot { border-width: 2px; }
+  .pano-spot-dot::before { width: 11px; height: 11px; }
+  .pano-spot-dot::after { border-width: 2px; }
+  .pano-spot.note .pano-spot-dot::before { width: 7px; height: 7px; }
+}
 .pano-spot-label {
   position: absolute;
   top: calc(100% + 5px);
@@ -159,6 +169,17 @@
 .pano-note-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #fff; font-weight: 700; font-size: 15px; margin-bottom: 6px; }
 .pano-note-close { background: none; border: none; color: #fff; opacity: 0.65; font-size: 15px; line-height: 1; cursor: pointer; padding: 3px; flex-shrink: 0; }
 .pano-note-close:hover { opacity: 1; }
+.pano-note { max-height: calc(100% - 140px); overflow-y: auto; }
+.pano-note-pdf {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; margin-top: 9px; padding: 9px 11px;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px; color: #fff; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.pano-note-pdf:hover { background: rgba(255, 255, 255, 0.15); }
+.pano-note-pdf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pano-note-pdf-dl { flex-shrink: 0; color: #4ee08a; font-weight: 600; }
+.pano-pdf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: rgba(255,255,255,0.85); align-self: center; }
 .pano-note-text { font-size: 13px; line-height: 1.55; color: rgba(255, 255, 255, 0.82); white-space: pre-wrap; }
 
 /* Функция «Брендинг тура»: маленький водяной знак в углу — над полоской

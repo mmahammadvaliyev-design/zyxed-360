@@ -57,7 +57,6 @@ export default function Editor() {
   const qrCode = useFeature("qrCode");
   const compression = useFeature("compression");
   const dragReorder = useFeature("dragReorder");
-  const i18n = useFeature("i18n");
   const mapFeature = useFeature("map");
   const [qrUrl, setQrUrl] = useState("");
   const [qrError, setQrError] = useState<string | null>(null);
@@ -250,11 +249,6 @@ export default function Editor() {
 
   async function rename(scene: Scene, title: string) {
     await db.scenes.update(scene.id, { title });
-    await touch();
-  }
-
-  async function renameEn(scene: Scene, titleEn: string) {
-    await db.scenes.update(scene.id, { titleEn: titleEn || undefined });
     await touch();
   }
 
@@ -568,16 +562,6 @@ export default function Editor() {
               </button>
               <div className="grow">
                 <input type="text" value={s.title} onChange={(e) => rename(s, e.target.value)} aria-label={t("Название панорамы", "Panorama name")} />
-                {i18n && (
-                  <input
-                    type="text"
-                    value={s.titleEn ?? ""}
-                    onChange={(e) => renameEn(s, e.target.value)}
-                    placeholder={t("English title (необязательно)", "English title (optional)")}
-                    aria-label={t("Название по-английски", "Title in English")}
-                    style={{ marginTop: 6 }}
-                  />
-                )}
                 <div className="muted" style={{ marginTop: 6 }}>{s.width}×{s.height} · {t("переходов", "transitions")}: {s.hotspots.length}</div>
                 <div className="row" style={{ gap: 6, marginTop: 8 }}>
                   <button className="ghost small" disabled={i === 0} onClick={() => move(i, -1)} aria-label={t("Выше", "Move up")}>↑</button>

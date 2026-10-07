@@ -31,9 +31,9 @@ export const FEATURES: FeatureFlag[] = [
     label: "Богатые заметки",
     labelEn: "Rich notes",
     description:
-      "Инфо-точки (без перехода на другую панораму) открывают карточку с описанием и фото вместо короткой всплывающей подписи на пару секунд.",
+      "Инфо-точки (без перехода на другую панораму) открывают карточку с описанием, фото и PDF-файлами (их можно скачать) вместо короткой всплывающей подписи на пару секунд.",
     descriptionEn:
-      "Info points (without a transition to another panorama) open a card with a description and photo instead of a short popup label for a couple of seconds.",
+      "Info points (without a transition to another panorama) open a card with a description, a photo and PDF files (downloadable) instead of a short popup label for a couple of seconds.",
     defaultOn: false,
   },
   {
@@ -97,16 +97,6 @@ export const FEATURES: FeatureFlag[] = [
     defaultOn: false,
   },
   {
-    id: "i18n",
-    label: "RU/EN тур",
-    labelEn: "RU/EN tour",
-    description:
-      "Для каждой панорамы и подписи перехода можно задать английский вариант в редакторе; если не задан, показывается русский. Язык показа — общая настройка приложения (наверху этой страницы), в самом туре переключателя нет: экспорт всегда собирается на том языке, что выбран сейчас в приложении.",
-    descriptionEn:
-      "For each panorama and transition label you can set an English variant in the editor; if it's not set, Russian is shown. Display language is an app-wide setting (at the top of this page) — there's no switch inside the tour itself: export always bundles whatever language is currently selected in the app.",
-    defaultOn: false,
-  },
-  {
     id: "projectBackup",
     label: "Резервная копия / перенос проекта",
     labelEn: "Project backup / transfer",
@@ -121,9 +111,9 @@ export const FEATURES: FeatureFlag[] = [
     label: "Карта тура",
     labelEn: "Tour map",
     description:
-      "Загружаете план объекта (любая картинка) в редакторе и вручную расставляете на нём точки съёмки, перетаскивая. Кнопка «🗺️ Карта» появляется и в приложении, и в опубликованном туре — клик по точке переходит на нужную панораму.",
+      "Загружаете план объекта (любая картинка) в редакторе и вручную расставляете на нём точки съёмки (выбрать панораму в списке → нажать место на плане). Миниатюра карты всегда видна и в приложении, и в опубликованном туре — «⤢» разворачивает план, клик по точке переходит на нужную панораму.",
     descriptionEn:
-      "Upload a site plan (any image) in the editor and manually place shooting points on it by dragging. A \"🗺️ Map\" button appears both in the app and in the published tour — clicking a point jumps to that panorama.",
+      "Upload a site plan (any image) in the editor and manually place shooting points on it (pick a panorama in the list → tap a spot on the plan). A map thumbnail is always visible both in the app and in the published tour — \"⤢\" expands the plan, clicking a point jumps to that panorama.",
     defaultOn: false,
   },
 ];

@@ -109,8 +109,8 @@ function LanguageSelector() {
       </div>
       <p className="muted" style={{ marginTop: 10, marginBottom: 0, lineHeight: 1.5, fontSize: 13 }}>
         {t(
-          "Меняет язык всего интерфейса приложения. Для содержимого тура (названия панорам, подписи переходов) переключает только те, где в редакторе заполнено поле «English title» / «Label (English)» — пока оно пустое, показывается русский текст.",
-          "Changes the language of the whole app interface. For tour content (panorama titles, transition labels) it only switches ones where the \"English title\" / \"Label (English)\" field is filled in — while it's empty, the Russian text is shown.",
+          "Меняет язык интерфейса приложения и кнопок в экспортированном туре. Ваши названия панорам и заметки не переводятся — показываются как вписаны.",
+          "Changes the language of the app interface and of the buttons in an exported tour. Your panorama titles and notes are not translated — they are shown as you typed them.",
         )}
       </p>
     </div>

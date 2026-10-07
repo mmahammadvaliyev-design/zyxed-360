@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uid, type Hotspot, type Scene } from "../db";
+import type { NotePdf } from "../engine/types";
 import {
   basisFor,
   clamp,
@@ -14,11 +15,10 @@ import {
   type Basis,
   type View,
 } from "../engine/pano";
-import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
+import { bitmapSize, checkPdf, closeBitmap, loadBitmap, PDF_MAX_BYTES, prepareHotspotPhoto } from "../imageImport";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
 import { useFeature } from "../features";
 import { useBranding } from "../branding";
-import { useAppLanguage } from "../appLanguage";
 import { useT } from "../i18n";
 
 interface Props {
@@ -53,8 +53,6 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const slideshowEnabled = useFeature("slideshow");
   const brandingEnabled = useFeature("branding");
   const branding = useBranding();
-  const i18nEnabled = useFeature("i18n");
-  const lang = useAppLanguage();
   const mapEnabled = useFeature("map");
   const [mapOpen, setMapOpen] = useState(false);
   const [mapUrl, setMapUrl] = useState<string | null>(null);
@@ -535,8 +533,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   function activateHotspot(h: Hotspot) {
     if (edit) { setSelectedId(h.id); return; }
     if (h.targetId && scenes.some((s) => s.id === h.targetId)) { goTo(h.targetId); return; }
-    if (richNotes && (h.note?.trim() || h.photo)) { setNoteHotspot(h); return; }
-    flash(hotspotLabel(h));
+    if (richNotes && (h.note?.trim() || h.photo || h.pdfs?.length)) { setNoteHotspot(h); return; }
+    flash(h.label);
   }
 
   async function pickNotePhoto(hotspotId: string, file: File | undefined) {
@@ -545,16 +543,39 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     updateHotspot(hotspotId, { photo });
   }
 
-  // Функция «RU/EN тур»: если для текущего языка нет перевода — молча
-  // показываем русский, а не пусто.
-  function sceneTitle(s: Scene): string {
-    return lang === "en" && s.titleEn?.trim() ? s.titleEn : s.title;
+  // PDF-вложения заметки: можно прикрепить несколько, каждый скачивается
+  // отдельной кнопкой на карточке.
+  function addNotePdfs(hotspotId: string, files: FileList | null) {
+    if (!files?.length) return;
+    const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
+    const added: NotePdf[] = [];
+    for (const file of Array.from(files)) {
+      const problem = checkPdf(file);
+      if (problem === "not-pdf") { flash(t(`«${file.name}» — не PDF`, `"${file.name}" is not a PDF`)); continue; }
+      if (problem === "too-big") {
+        const mb = Math.round(PDF_MAX_BYTES / 1024 / 1024);
+        flash(t(`«${file.name}» больше ${mb} МБ — сожмите PDF`, `"${file.name}" is over ${mb} MB — compress the PDF`));
+        continue;
+      }
+      added.push({ name: file.name, data: file });
+    }
+    if (added.length) updateHotspot(hotspotId, { pdfs: [...current, ...added] });
   }
-  function hotspotLabel(h: Hotspot): string {
-    return lang === "en" && h.labelEn?.trim() ? h.labelEn : h.label;
+  function removeNotePdf(hotspotId: string, index: number) {
+    const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
+    const next = current.filter((_, i) => i !== index);
+    updateHotspot(hotspotId, { pdfs: next.length ? next : undefined });
   }
-  function hotspotNote(h: Hotspot): string | undefined {
-    return lang === "en" && h.noteEn?.trim() ? h.noteEn : h.note;
+  function downloadPdf(pdf: NotePdf) {
+    if (!pdf.data) return;
+    const url = URL.createObjectURL(pdf.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = pdf.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   // «Соседние» — сцены, куда есть переход прямо с текущей (обычно предыдущая
@@ -572,8 +593,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     for (const neighbor of neighbors) {
       if (neighbor.hotspots.some((x) => !x.targetId && x.label === h.label)) continue;
       const clone: Hotspot = {
-        id: uid(), yaw: h.yaw, pitch: h.pitch, label: h.label, labelEn: h.labelEn, targetId: null,
-        note: h.note, noteEn: h.noteEn, photo: h.photo,
+        id: uid(), yaw: h.yaw, pitch: h.pitch, label: h.label, targetId: null,
+        note: h.note, photo: h.photo, pdfs: h.pdfs,
       };
       onChange({ ...neighbor, hotspots: [...neighbor.hotspots, clone] });
       added++;
@@ -612,10 +633,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           }}
           style={{ visibility: "hidden" }}
           onClick={(e) => { if (e.detail === 0) activateHotspot(h); }}
-          title={hotspotLabel(h)}
+          title={h.label}
         >
           <span className="pano-spot-dot" />
-          <span className="pano-spot-label">{hotspotLabel(h)}</span>
+          <span className="pano-spot-label">{h.label}</span>
         </button>
       ))}
 
@@ -625,7 +646,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
       <div className="pano-top" data-hud onPointerDown={(e) => e.stopPropagation()}>
         <div className="pano-title">
-          <b>{sceneTitle(scene)}</b>
+          <b>{scene.title}</b>
           <span className="pano-sub">{sceneIndex + 1} / {scenes.length}</span>
         </div>
         <div className="pano-tools">
@@ -654,14 +675,6 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                 <input className="pano-input grow" value={selected.label} onChange={(e) => updateHotspot(selected.id, { label: e.target.value })} placeholder={t("Подпись", "Label")} />
                 <button className="pano-btn" onClick={() => setSelectedId(null)}>✕</button>
               </div>
-              {i18nEnabled && (
-                <input
-                  className="pano-input"
-                  value={selected.labelEn ?? ""}
-                  onChange={(e) => updateHotspot(selected.id, { labelEn: e.target.value })}
-                  placeholder="Label (English)"
-                />
-              )}
               <select className="pano-input" value={selected.targetId ?? ""} onChange={(e) => updateHotspot(selected.id, { targetId: e.target.value || null })}>
                 <option value="">{t("Без перехода (просто подпись)", "No transition (label only)")}</option>
                 {scenes.filter((s) => s.id !== scene.id).map((s) => (
@@ -677,15 +690,6 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                     value={selected.note ?? ""}
                     onChange={(e) => updateHotspot(selected.id, { note: e.target.value })}
                   />
-                  {i18nEnabled && (
-                    <textarea
-                      className="pano-input"
-                      rows={3}
-                      placeholder="Description (English)"
-                      value={selected.noteEn ?? ""}
-                      onChange={(e) => updateHotspot(selected.id, { noteEn: e.target.value })}
-                    />
-                  )}
                   <div className="row" style={{ gap: 6 }}>
                     <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
                       {selected.photo ? t("Заменить фото", "Replace photo") : t("+ Фото", "+ Photo")}
@@ -700,6 +704,24 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                       <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title={t("Убрать фото", "Remove photo")}>✕ {t("фото", "photo")}</button>
                     )}
                   </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
+                      {t("+ PDF", "+ PDF")}
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        multiple
+                        style={{ display: "none" }}
+                        onChange={(e) => { addNotePdfs(selected.id, e.target.files); e.target.value = ""; }}
+                      />
+                    </label>
+                  </div>
+                  {selected.pdfs?.map((pdf, i) => (
+                    <div key={i} className="row" style={{ gap: 6 }}>
+                      <span className="pano-pdf-name grow" title={pdf.name}>📄 {pdf.name}</span>
+                      <button className="pano-btn" onClick={() => removeNotePdf(selected.id, i)} title={t("Убрать PDF", "Remove PDF")}>✕</button>
+                    </div>
+                  ))}
                   {neighborScenes().length > 0 && (
                     <button className="pano-btn wide" onClick={() => propagateNoteToNeighbors(selected)}>
                       {t("Показать и на соседних панорамах", "Also show on neighboring panoramas")}
@@ -750,7 +772,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           }}
         >
           {scenes.map((s) => (
-            <button key={s.id} className={`pano-chip${s.id === scene.id ? " on" : ""}`} onClick={() => goTo(s.id)}>{sceneTitle(s)}</button>
+            <button key={s.id} className={`pano-chip${s.id === scene.id ? " on" : ""}`} onClick={() => goTo(s.id)}>{s.title}</button>
           ))}
         </div>
       )}
@@ -760,10 +782,16 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {notePhotoUrl && <img className="pano-note-photo" src={notePhotoUrl} alt="" />}
           <div className="pano-note-body">
             <div className="pano-note-title">
-              <span>{hotspotLabel(noteHotspot)}</span>
+              <span>{noteHotspot.label}</span>
               <button className="pano-note-close" onClick={() => setNoteHotspot(null)} aria-label={t("Закрыть", "Close")}>✕</button>
             </div>
-            {hotspotNote(noteHotspot) && <div className="pano-note-text">{hotspotNote(noteHotspot)}</div>}
+            {noteHotspot.note && <div className="pano-note-text">{noteHotspot.note}</div>}
+            {noteHotspot.pdfs?.map((pdf, i) => (
+              <button key={i} className="pano-note-pdf" onClick={() => downloadPdf(pdf)}>
+                <span className="pano-note-pdf-name">📄 {pdf.name}</span>
+                <span className="pano-note-pdf-dl">⬇ {t("Скачать", "Download")}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -806,9 +834,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   className={`pano-map-pin${s.id === scene.id ? " on" : ""}`}
                   style={{ left: `${s.mapX}%`, top: `${s.mapY}%` }}
                   onClick={() => { goTo(s.id); setMapOpen(false); }}
-                  title={sceneTitle(s)}
+                  title={s.title}
                 >
-                  <span className="pano-map-pin-label">{sceneTitle(s)}</span>
+                  <span className="pano-map-pin-label">{s.title}</span>
                 </button>
               ))}
           </div>

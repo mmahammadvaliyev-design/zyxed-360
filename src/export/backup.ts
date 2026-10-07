@@ -9,7 +9,8 @@ import { slugify } from "./bundle";
 
 const BACKUP_VERSION = 1;
 
-interface BackupHotspot extends Omit<Hotspot, "photo"> {
+interface BackupHotspot extends Omit<Hotspot, "photo" | "pdfs"> {
+  pdfRefs?: { name: string; ref: string }[]; // PDF-вложения заметки: имя + путь в архиве
   photoRef?: string; // путь внутри архива, если у заметки есть фото
 }
 interface BackupScene {
@@ -45,13 +46,20 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
     files[`thumbs/${s.id}.jpg`] = new Uint8Array(await s.thumb.arrayBuffer());
     const hotspots: BackupHotspot[] = [];
     for (const h of s.hotspots) {
-      const { photo, ...rest } = h;
+      const { photo, pdfs, ...rest } = h;
       let photoRef: string | undefined;
       if (photo) {
         photoRef = `hotspotPhotos/${h.id}.jpg`;
         files[photoRef] = new Uint8Array(await photo.arrayBuffer());
       }
-      hotspots.push({ ...rest, photoRef });
+      const pdfRefs: { name: string; ref: string }[] = [];
+      for (const [i, p] of (pdfs ?? []).entries()) {
+        if (!p.data) continue;
+        const ref = `hotspotPdfs/${h.id}-${i}.pdf`;
+        files[ref] = new Uint8Array(await p.data.arrayBuffer());
+        pdfRefs.push({ name: p.name, ref });
+      }
+      hotspots.push({ ...rest, photoRef, pdfRefs: pdfRefs.length ? pdfRefs : undefined });
     }
     backupScenes.push({
       id: s.id,
@@ -118,13 +126,18 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
     const thumbBytes = files[`thumbs/${s.id}.jpg`];
     if (!imgBytes || !thumbBytes) continue;
     const hotspots: Hotspot[] = s.hotspots.map((h) => {
-      const { photoRef, ...rest } = h;
+      const { photoRef, pdfRefs, ...rest } = h;
       const photoBytes = photoRef ? files[photoRef] : undefined;
+      const pdfs = (pdfRefs ?? []).flatMap((p) => {
+        const bytes = files[p.ref];
+        return bytes ? [{ name: p.name, data: new Blob([new Uint8Array(bytes)], { type: "application/pdf" }) }] : [];
+      });
       return {
         ...rest,
         id: uid(),
         targetId: h.targetId ? idMap.get(h.targetId) ?? null : null,
         photo: photoBytes ? new Blob([new Uint8Array(photoBytes)], { type: "image/jpeg" }) : undefined,
+        pdfs: pdfs.length ? pdfs : undefined,
       };
     });
     await db.scenes.put({

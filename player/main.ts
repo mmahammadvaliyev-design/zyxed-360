@@ -17,7 +17,7 @@ import {
 } from "../src/engine/pano";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../src/engine/gyro";
 import { loadBitmap, bitmapSize, closeBitmap } from "../src/engine/bitmap";
-import type { Hotspot, SceneMeta, TourManifest } from "../src/engine/types";
+import type { Hotspot, NotePdf, SceneMeta, TourManifest } from "../src/engine/types";
 
 const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
@@ -130,16 +130,6 @@ function currentScene(): SceneMeta | undefined {
   return scenes[currentIndex];
 }
 
-function sceneTitle(s: SceneMeta): string {
-  return lang === "en" && s.titleEn?.trim() ? s.titleEn : s.title;
-}
-function hotspotLabel(h: Hotspot): string {
-  return lang === "en" && h.labelEn?.trim() ? h.labelEn : h.label;
-}
-function hotspotNote(h: Hotspot): string | undefined {
-  return lang === "en" && h.noteEn?.trim() ? h.noteEn : h.note;
-}
-
 function pinchDistance(): number {
   const pts = [...pointers.values()];
   if (pts.length < 2) return 0;
@@ -155,9 +145,9 @@ function renderHotspots(scene: SceneMeta) {
     btn.dataset.hud = "1";
     btn.dataset.spot = h.id;
     btn.style.visibility = "hidden";
-    btn.title = hotspotLabel(h);
+    btn.title = h.label;
     btn.innerHTML = `<span class="pano-spot-dot"></span><span class="pano-spot-label"></span>`;
-    (btn.querySelector(".pano-spot-label") as HTMLElement).textContent = hotspotLabel(h);
+    (btn.querySelector(".pano-spot-label") as HTMLElement).textContent = h.label;
     btn.addEventListener("click", (e) => {
       if ((e as MouseEvent).detail === 0) activateHotspot(h);
     });
@@ -169,6 +159,24 @@ function renderHotspots(scene: SceneMeta) {
 function closeNote() {
   noteEl?.remove();
   noteEl = null;
+}
+
+// PDF в манифесте — data: URI. Скачиваем через Blob + object URL: так
+// работает и под file://, и с большими файлами (data: в href упирается в
+// лимиты браузеров).
+function downloadPdf(pdf: NotePdf) {
+  if (!pdf.url) return;
+  const bin = atob(pdf.url.slice(pdf.url.indexOf(",") + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = pdf.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 // Функция «Богатые заметки»: постоянная карточка с описанием/фото вместо
@@ -193,7 +201,7 @@ function openNote(h: Hotspot) {
   const title = document.createElement("div");
   title.className = "pano-note-title";
   const label = document.createElement("span");
-  label.textContent = hotspotLabel(h);
+  label.textContent = h.label;
   const closeBtn = document.createElement("button");
   closeBtn.className = "pano-note-close";
   closeBtn.setAttribute("aria-label", "Закрыть");
@@ -201,12 +209,25 @@ function openNote(h: Hotspot) {
   closeBtn.addEventListener("click", closeNote);
   title.append(label, closeBtn);
   body.appendChild(title);
-  const noteText = hotspotNote(h);
+  const noteText = h.note;
   if (noteText) {
     const text = document.createElement("div");
     text.className = "pano-note-text";
     text.textContent = noteText;
     body.appendChild(text);
+  }
+  for (const pdf of h.pdfs ?? []) {
+    const btn = document.createElement("button");
+    btn.className = "pano-note-pdf";
+    const name = document.createElement("span");
+    name.className = "pano-note-pdf-name";
+    name.textContent = "📄 " + pdf.name;
+    const dl = document.createElement("span");
+    dl.className = "pano-note-pdf-dl";
+    dl.textContent = "⬇ " + (lang === "en" ? "Download" : "Скачать");
+    btn.append(name, dl);
+    btn.addEventListener("click", () => downloadPdf(pdf));
+    body.appendChild(btn);
   }
   card.appendChild(body);
   wrapEl.appendChild(card);
@@ -221,11 +242,11 @@ function activateHotspot(h: Hotspot) {
       return;
     }
   }
-  if (manifest.features?.richNotes && (h.note || h.noteEn || h.photoUrl)) {
+  if (manifest.features?.richNotes && (h.note || h.photoUrl || h.pdfs?.length)) {
     openNote(h);
     return;
   }
-  flash(hotspotLabel(h));
+  flash(h.label);
 }
 
 function renderStrip() {
@@ -235,7 +256,7 @@ function renderStrip() {
     const chip = document.createElement("button");
     chip.className = `pano-chip${i === currentIndex ? " on" : ""}`;
     chip.dataset.hud = "1";
-    chip.textContent = sceneTitle(s);
+    chip.textContent = s.title;
     chip.addEventListener("click", () => goTo(i));
     stripEl.appendChild(chip);
   });
@@ -256,10 +277,10 @@ function renderMapPins() {
     pin.className = `pano-map-pin${i === currentIndex ? " on" : ""}`;
     pin.style.left = `${s.mapX}%`;
     pin.style.top = `${s.mapY}%`;
-    pin.title = sceneTitle(s);
+    pin.title = s.title;
     const label = document.createElement("span");
     label.className = "pano-map-pin-label";
-    label.textContent = sceneTitle(s);
+    label.textContent = s.title;
     pin.appendChild(label);
     pin.addEventListener("click", () => {
       goTo(i);
@@ -291,7 +312,7 @@ async function goTo(index: number) {
   const token = ++loadToken;
   closeNote();
 
-  titleEl.textContent = sceneTitle(scene);
+  titleEl.textContent = scene.title;
   subEl.textContent = `${index + 1} / ${scenes.length}`;
   renderHotspots(scene);
   renderStrip();

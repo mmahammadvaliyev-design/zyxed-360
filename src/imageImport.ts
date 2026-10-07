@@ -127,3 +127,15 @@ export function ratioHint(width: number, height: number): string | null {
   if (r > 1.9 && r < 2.1) return null;
   return `Пропорции ${width}×${height} (${r.toFixed(2)}:1) — для полной сферы нужно 2:1, иначе картинка растянется.`;
 }
+
+// «Богатые заметки»: PDF-вложение. Хранится как есть (без пережатия) и в
+// экспорте едет внутри index.html как data: URI (+33% к размеру), поэтому
+// размер одного файла ограничен.
+export const PDF_MAX_BYTES = 15 * 1024 * 1024;
+
+export function checkPdf(file: File): string | null {
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  if (!isPdf) return "not-pdf";
+  if (file.size > PDF_MAX_BYTES) return "too-big";
+  return null;
+}
