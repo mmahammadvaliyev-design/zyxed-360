@@ -1,8 +1,9 @@
-// Брендинг опубликованного тура: свой логотип + подпись в углу плеера.
-// Настройка одна на всё приложение (не на конкретный тур — обычно это лого
-// своей компании), хранится в localStorage как data: URI. Встраивается в
-// экспорт только если функция «Брендинг тура» включена (см. features.ts).
+// Брендинг опубликованного тура: логотип + подпись в углу плеера. Всегда
+// включён (отдельного тумблера нет); по умолчанию — логотип ZYXED Engineering,
+// его можно заменить своим в настройках. Настройка одна на всё приложение
+// (не на конкретный тур), хранится в localStorage как data: URI.
 import { useSyncExternalStore } from "react";
+import { DEFAULT_LOGO } from "./brandingDefault";
 
 export interface Branding {
   logo?: string; // data: URI, до ~240px — маленькая картинка
@@ -11,13 +12,23 @@ export interface Branding {
 
 const STORAGE_KEY = "zyxed360:branding";
 
+// В state всегда лежит «эффективное» значение (с логотипом по умолчанию), а в
+// localStorage — только то, что задал пользователь.
+function withDefault(raw: Branding): Branding {
+  return { ...raw, logo: raw.logo ?? DEFAULT_LOGO };
+}
+
 function load(): Branding {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    return withDefault(raw ? JSON.parse(raw) : {});
   } catch {
-    return {};
+    return withDefault({});
   }
+}
+
+export function isDefaultLogo(logo: string | undefined): boolean {
+  return !logo || logo === DEFAULT_LOGO;
 }
 
 let state = load();
@@ -32,9 +43,11 @@ export function getBranding(): Branding {
 }
 
 export function setBranding(patch: Partial<Branding>): void {
-  state = { ...state, ...patch };
+  state = withDefault({ ...state, ...patch });
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const custom: Branding = { text: state.text };
+    if (!isDefaultLogo(state.logo)) custom.logo = state.logo;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
   } catch {
     /* приватный режим/квота — просто не запомнится между сессиями */
   }

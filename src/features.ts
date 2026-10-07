@@ -57,16 +57,6 @@ export const FEATURES: FeatureFlag[] = [
     defaultOn: true,
   },
   {
-    id: "branding",
-    label: "Брендинг тура",
-    labelEn: "Tour branding",
-    description:
-      "Свой логотип и подпись в углу опубликованного тура (и в предпросмотре) — настраивается в этих же настройках, одна пара логотип+подпись на все туры.",
-    descriptionEn:
-      "Your own logo and caption in the corner of the published tour (and in the preview) — configured right here in settings, one logo+caption pair for all tours.",
-    defaultOn: true,
-  },
-  {
     id: "qrCode",
     label: "QR-код тура",
     labelEn: "Tour QR code",

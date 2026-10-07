@@ -147,7 +147,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     ),
     images,
     features: getFeatureSnapshot(),
-    branding: isFeatureEnabled("branding") ? getBranding() : undefined,
+    branding: getBranding(),
     lang: getAppLanguage(),
     mapImage: isFeatureEnabled("map") && project.mapImage ? await blobToDataUrl(project.mapImage) : undefined,
   };

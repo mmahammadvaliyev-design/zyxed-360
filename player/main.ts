@@ -713,8 +713,7 @@ function startTour(data: TourManifest) {
     mapMini.hidden = false;
     renderMapPins();
   }
-  // Функция «Брендинг тура»: логотип/подпись присутствуют в манифесте,
-  // только если функция была включена на момент экспорта (см. bundle.ts).
+  // Брендинг тура: логотип (по умолчанию ZYXED) и подпись — всегда в манифесте (см. bundle.ts).
   const brand = manifest.branding;
   if (brand?.logo || brand?.text) {
     const el = document.createElement("div");

@@ -62,7 +62,6 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [slideshow, setSlideshow] = useState(false);
   const richNotes = useFeature("richNotes");
   const slideshowEnabled = useFeature("slideshow");
-  const brandingEnabled = useFeature("branding");
   const branding = useBranding();
   const mapEnabled = useFeature("map");
   const [mapOpen, setMapOpen] = useState(false);
@@ -929,7 +928,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         </div>
       )}
 
-      {brandingEnabled && (branding.logo || branding.text) && (
+      {(branding.logo || branding.text) && (
         <div className="pano-brand">
           {branding.logo && <img src={branding.logo} alt="" />}
           {branding.text && <span>{branding.text}</span>}

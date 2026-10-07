@@ -209,7 +209,8 @@
   pointer-events: none;
   z-index: 5;
 }
-.pano-brand img { height: 90px; width: auto; display: block; flex-shrink: 0; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6)); }
+/* Рамка, а не фиксированная высота: и широкий знак ZYXED (4,4:1), и квадратный свой логотип выглядят пропорционально. */
+.pano-brand img { height: auto; width: auto; max-height: 90px; max-width: min(240px, 45vw); display: block; flex-shrink: 0; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.6)); }
 .pano-brand span { font-size: 16px; font-weight: 600; color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .pano-strip {

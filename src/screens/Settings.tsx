@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FEATURES, setFeatureEnabled, useFeature, type FeatureFlag } from "../features";
-import { setBranding, useBranding } from "../branding";
+import { isDefaultLogo, setBranding, useBranding } from "../branding";
 import { setAppLanguage, useAppLanguage } from "../appLanguage";
 import { prepareBrandingLogo } from "../imageImport";
 import { useT } from "../i18n";
@@ -30,8 +30,8 @@ function FeatureRow({ feature }: { feature: FeatureFlag }) {
   );
 }
 
-// Настройка логотипа/подписи для функции «Брендинг тура» — показывается
-// сразу под её тумблером, пока он включён.
+// Брендинг тура: логотип и подпись в углу опубликованных туров. Всегда
+// включён; по умолчанию — логотип ZYXED, можно заменить своим.
 function BrandingEditor() {
   const t = useT();
   const branding = useBranding();
@@ -51,12 +51,19 @@ function BrandingEditor() {
   }
 
   return (
-    <div className="card" style={{ marginTop: -5, marginBottom: 11 }}>
+    <div className="card" style={{ marginBottom: 16 }}>
+      <b>{t("Брендинг тура", "Tour branding")}</b>
+      <p className="muted" style={{ margin: "4px 0 10px", lineHeight: 1.5, fontSize: 13 }}>
+        {t(
+          "Логотип и подпись в углу каждого опубликованного тура (и в предпросмотре). По умолчанию — логотип ZYXED Engineering; можно заменить своим — одна пара на все туры.",
+          "Logo and caption in the corner of every published tour (and in the preview). ZYXED Engineering logo by default; you can replace it with your own — one pair for all tours.",
+        )}
+      </p>
       <div className="row" style={{ gap: 10, alignItems: "center" }}>
         <div
           style={{
             width: 56, height: 56, borderRadius: 10, flexShrink: 0,
-            background: "var(--surface-2)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+            background: "#0a1420", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
           }}
         >
           {branding.logo ? (
@@ -67,12 +74,12 @@ function BrandingEditor() {
         </div>
         <div className="grow">
           <label className="ghost small" style={{ cursor: "pointer", display: "inline-block" }}>
-            {busy ? t("Загружаю…", "Uploading…") : branding.logo ? t("Заменить логотип", "Replace logo") : t("+ Логотип", "+ Logo")}
+            {busy ? t("Загружаю…", "Uploading…") : t("Заменить логотип", "Replace logo")}
             <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pickLogo(e.target.files?.[0])} />
           </label>
-          {branding.logo && (
+          {!isDefaultLogo(branding.logo) && (
             <button className="ghost small" style={{ marginLeft: 6 }} onClick={() => setBranding({ logo: undefined })}>
-              {t("✕ убрать", "✕ remove")}
+              {t("↺ логотип ZYXED", "↺ ZYXED logo")}
             </button>
           )}
         </div>
@@ -120,7 +127,6 @@ function LanguageSelector() {
 export default function Settings() {
   const nav = useNavigate();
   const t = useT();
-  const brandingOn = useFeature("branding");
   return (
     <div>
       <button className="back-link" onClick={() => nav("/")}>{t("← Мои туры", "← My tours")}</button>
@@ -133,11 +139,9 @@ export default function Settings() {
         )}
       </p>
       {FEATURES.map((f) => (
-        <div key={f.id}>
-          <FeatureRow feature={f} />
-          {f.id === "branding" && brandingOn && <BrandingEditor />}
-        </div>
+        <FeatureRow key={f.id} feature={f} />
       ))}
+      <BrandingEditor />
     </div>
   );
 }
