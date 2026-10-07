@@ -42,6 +42,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [edit, setEdit] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [placing, setPlacing] = useState<"new" | "new-note" | string | null>(null);
+  // Какую из прежних заметок подставить в следующую новую («» — пустую).
+  const [noteTemplateKey, setNoteTemplateKey] = useState("");
   const [autorotate, setAutorotate] = useState(false);
   const [gyro, setGyro] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -375,7 +377,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           const targetTitle = scenes.find((s) => s.id === targetId)?.title ?? t("Переход", "Transition");
           spotNew = { id: uid(), yaw, pitch, label: targetTitle, targetId };
         } else {
-          spotNew = { id: uid(), yaw, pitch, label: t("Заметка", "Note"), targetId: null };
+          const tpl = noteLibrary().find((x) => x.key === noteTemplateKey);
+          spotNew = tpl
+            ? { id: uid(), yaw, pitch, label: tpl.hotspot.label, targetId: null, note: tpl.hotspot.note, photo: tpl.hotspot.photo, pdfs: tpl.hotspot.pdfs }
+            : { id: uid(), yaw, pitch, label: t("Заметка", "Note"), targetId: null };
         }
         onChange({ ...scene, hotspots: [...scene.hotspots, spotNew] });
         setSelectedId(spotNew.id);
@@ -578,6 +583,31 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
+  // Библиотека прежних заметок всего тура: информационные точки (без
+  // перехода), в которых есть что показать. Одинаковые (то же название и
+  // текст — например, скопированные на соседние панорамы) показываем один раз.
+  function noteLibrary(excludeId?: string): { key: string; text: string; hotspot: Hotspot }[] {
+    const seen = new Set<string>();
+    const out: { key: string; text: string; hotspot: Hotspot }[] = [];
+    for (const s of scenes) {
+      for (const h of s.hotspots) {
+        if (h.targetId || h.id === excludeId) continue;
+        if (!h.note?.trim() && !h.photo && !h.pdfs?.length) continue;
+        const key = `${h.label} ${h.note ?? ""} ${(h.pdfs ?? []).map((x) => x.name).join("|")}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const extras = [h.photo ? "🖼" : "", h.pdfs?.length ? `📄${h.pdfs.length}` : ""].filter(Boolean).join(" ");
+        out.push({ key, text: `${h.label} · ${s.title}${extras ? " " + extras : ""}`, hotspot: h });
+      }
+    }
+    return out;
+  }
+  function fillFromNote(hotspotId: string, key: string) {
+    const tpl = noteLibrary(hotspotId).find((x) => x.key === key);
+    if (!tpl) return;
+    updateHotspot(hotspotId, { label: tpl.hotspot.label, note: tpl.hotspot.note, photo: tpl.hotspot.photo, pdfs: tpl.hotspot.pdfs });
+  }
+
   // «Соседние» — сцены, куда есть переход прямо с текущей (обычно предыдущая
   // и следующая по маршруту). Заметка часто видна с нескольких соседних
   // точек съёмки, поэтому её можно скопировать туда же одним нажатием.
@@ -683,6 +713,18 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
               </select>
               {richNotes && !selected.targetId && (
                 <>
+                  {noteLibrary(selected.id).length > 0 && (
+                    <select
+                      className="pano-input"
+                      value=""
+                      onChange={(e) => fillFromNote(selected.id, e.target.value)}
+                    >
+                      <option value="">{t("Заполнить из прежней заметки…", "Fill from a previous note…")}</option>
+                      {noteLibrary(selected.id).map((x) => (
+                        <option key={x.key} value={x.key}>{x.text}</option>
+                      ))}
+                    </select>
+                  )}
                   <textarea
                     className="pano-input"
                     rows={3}
@@ -738,6 +780,14 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             </>
           ) : (
             <>
+              {richNotes && noteLibrary().length > 0 && (
+                <select className="pano-input" value={noteTemplateKey} onChange={(e) => setNoteTemplateKey(e.target.value)}>
+                  <option value="">{t("Новая заметка: пустая", "New note: empty")}</option>
+                  {noteLibrary().map((x) => (
+                    <option key={x.key} value={x.key}>{t("Новая заметка из прежней: ", "New note from previous: ")}{x.text}</option>
+                  ))}
+                </select>
+              )}
               <div className="row" style={{ gap: 6 }}>
                 <button className={`pano-btn wide${placing === "new" ? " on" : ""}`} onClick={() => setPlacing(placing === "new" ? null : "new")}>
                   {placing === "new" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Переход", "+ Transition")}
