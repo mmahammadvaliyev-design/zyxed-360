@@ -34,7 +34,7 @@ export const FEATURES: FeatureFlag[] = [
       "Инфо-точки (без перехода на другую панораму) открывают карточку с описанием, фото и вложениями: PDF, чертежи DWG (скачиваются), 3D-модели GLB (крутятся прямо в туре), ссылки (например, на модель Navisworks в Autodesk Viewer) вместо короткой всплывающей подписи на пару секунд.",
     descriptionEn:
       "Info points (without a transition to another panorama) open a card with a description, a photo and attachments: PDF, DWG drawings (downloadable), GLB 3D models (viewable right in the tour), links (e.g. to a Navisworks model in Autodesk Viewer) instead of a short popup label for a couple of seconds.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "linearChain",
@@ -44,7 +44,7 @@ export const FEATURES: FeatureFlag[] = [
       "Кнопка «Связать по порядку» в редакторе — как «Связать по кругу», но без замыкания: для маршрута без цикла (труба, коридор, последовательность объектов).",
     descriptionEn:
       "The \"Link in order\" button in the editor — like \"Link in a circle\", but without closing the loop: for a route without a cycle (a pipe, a corridor, a sequence of sites).",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "slideshow",
@@ -54,7 +54,7 @@ export const FEATURES: FeatureFlag[] = [
       "Кнопка ▶ в самом туре — панорамы сами пролистываются по кругу с паузой между ними, для презентаций и киосков без оператора. Работает и в приложении, и в опубликованном туре.",
     descriptionEn:
       "The ▶ button inside the tour itself — panoramas advance on their own in a loop, with a pause between them, for presentations and unattended kiosks. Works both in the app and in the published tour.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "branding",
@@ -64,7 +64,7 @@ export const FEATURES: FeatureFlag[] = [
       "Свой логотип и подпись в углу опубликованного тура (и в предпросмотре) — настраивается в этих же настройках, одна пара логотип+подпись на все туры.",
     descriptionEn:
       "Your own logo and caption in the corner of the published tour (and in the preview) — configured right here in settings, one logo+caption pair for all tours.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "qrCode",
@@ -74,7 +74,7 @@ export const FEATURES: FeatureFlag[] = [
       "Кнопка «QR-код» в редакторе — вставляете ссылку на уже опубликованный тур (после загрузки экспорта на хостинг), получаете QR-код для печати в отчёте или на объекте. Генерируется прямо в браузере, без сети.",
     descriptionEn:
       "The \"QR code\" button in the editor — paste a link to an already published tour (after uploading the export to hosting), get a QR code to print in a report or on-site. Generated right in the browser, no network needed.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "compression",
@@ -84,7 +84,7 @@ export const FEATURES: FeatureFlag[] = [
       "Выбор качества при добавлении панорам — «Стандарт»/«Компактно» ужимают разрешение и JPEG-качество, чтобы тур с большим числом панорам весил меньше. По умолчанию — без доп. сжатия, как раньше.",
     descriptionEn:
       "A quality choice when adding panoramas — \"Standard\"/\"Compact\" shrink resolution and JPEG quality so a tour with many panoramas weighs less. Default — no extra compression, as before.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "dragReorder",
@@ -94,7 +94,7 @@ export const FEATURES: FeatureFlag[] = [
       "Ручка ⠿ у каждой панорамы в списке — перетащите, чтобы переставить в любое место одним движением, вместо пошагового ↑/↓. Работает и мышью, и пальцем на телефоне.",
     descriptionEn:
       "A ⠿ handle on each panorama in the list — drag to move it anywhere in one motion, instead of stepping with ↑/↓. Works with a mouse and with a finger on a phone.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "projectBackup",
@@ -104,7 +104,7 @@ export const FEATURES: FeatureFlag[] = [
       "Кнопки «Копия» (скачать весь редактируемый проект — панорамы, переходы, заметки) и «Импортировать копию» на главном экране — перенос тура на другое устройство или в другой браузер, а не только просмотр готового экспорта.",
     descriptionEn:
       "The \"Backup\" button (download the whole editable project — panoramas, transitions, notes) and \"Import backup\" on the home screen — move a tour to another device or browser, not just view the finished export.",
-    defaultOn: false,
+    defaultOn: true,
   },
   {
     id: "map",
@@ -114,7 +114,7 @@ export const FEATURES: FeatureFlag[] = [
       "Загружаете план объекта (любая картинка) в редакторе и вручную расставляете на нём точки съёмки (выбрать панораму в списке → нажать место на плане). Миниатюра карты всегда видна и в приложении, и в опубликованном туре — «⤢» разворачивает план, клик по точке переходит на нужную панораму.",
     descriptionEn:
       "Upload a site plan (any image) in the editor and manually place shooting points on it (pick a panorama in the list → tap a spot on the plan). A map thumbnail is always visible both in the app and in the published tour — \"⤢\" expands the plan, clicking a point jumps to that panorama.",
-    defaultOn: false,
+    defaultOn: true,
   },
 ];
 
