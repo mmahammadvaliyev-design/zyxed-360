@@ -48,10 +48,10 @@ const STR = {
 
 // Единицы модели → метры. По спецификации glTF единица — метр, но модели,
 // сконвертированные из CAD/Navisworks, нередко остаются в см или мм.
-const UNITS: { label: string; toMeters: number }[] = [
-  { label: "м / m", toMeters: 1 },
-  { label: "см / cm", toMeters: 0.01 },
-  { label: "мм / mm", toMeters: 0.001 },
+const UNITS: { ru: string; en: string; toMeters: number }[] = [
+  { ru: "м", en: "m", toMeters: 1 },
+  { ru: "см", en: "cm", toMeters: 0.01 },
+  { ru: "мм", en: "mm", toMeters: 0.001 },
 ];
 
 let styleInjected = false;
@@ -63,7 +63,7 @@ function injectStyle() {
 .z3d-bar{position:absolute;left:10px;top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;z-index:2;max-width:calc(100% - 20px)}
 .z3d-btn,.z3d-select{height:32px;padding:0 11px;border-radius:9px;border:1px solid rgba(255,255,255,.18);background:rgba(8,14,24,.72);color:#fff;font:600 13px/1 system-ui,sans-serif;cursor:pointer;backdrop-filter:blur(6px)}
 .z3d-btn.on{background:#fff;color:#0a1420;border-color:#fff}
-.z3d-select{padding:0 6px;font-weight:500}
+.z3d-select{padding:0 6px;font-weight:500;width:auto;max-width:130px;flex:0 0 auto}
 .z3d-select option{color:#14162a}
 .z3d-tip{font:500 12px/1.2 system-ui,sans-serif;color:rgba(255,255,255,.75)}
 .z3d-label{position:absolute;left:0;top:0;transform:translate(-50%,-130%);padding:3px 8px;border-radius:7px;background:rgba(255,211,78,.96);color:#14162a;font:700 12px/1.2 system-ui,sans-serif;white-space:nowrap;pointer-events:none;z-index:1}
@@ -184,6 +184,7 @@ function mount(
     measureGroup.add(line);
     const label = document.createElement("div");
     label.className = "z3d-label";
+    label.textContent = formatLength(a.distanceTo(p) * toMeters, lang);
     container.appendChild(label);
     measurements.push({ a, b: p, label });
     pending = null;
@@ -224,7 +225,7 @@ function mount(
   UNITS.forEach((u, i) => {
     const o = document.createElement("option");
     o.value = String(i);
-    o.textContent = `${S.units}: ${u.label}`;
+    o.textContent = `${S.units}: ${lang === "en" ? u.en : u.ru}`;
     unitSelect.appendChild(o);
   });
   unitSelect.hidden = true;
