@@ -47,3 +47,57 @@ export function fileIcon(name: string): string {
 export function mimeForName(name: string): string {
   return fileExt(name) === "pdf" ? "application/pdf" : "application/octet-stream";
 }
+
+// Что можно показать прямо в туре — только самодостаточный .glb (у .gltf
+// модель лежит в нескольких файлах, а мы принимаем один).
+export function isViewable3d(name: string): boolean {
+  return fileExt(name) === "glb";
+}
+
+// Ссылка допустима только http(s) — никаких javascript:/data:/file:.
+export function normalizeHref(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Контракт 3D-просмотрщика (viewer3d/main.ts), который подключается отдельным
+// скриптом и кладёт себя в window.Zyxed3D.
+export interface Viewer3dApi {
+  mount(
+    container: HTMLElement,
+    data: ArrayBuffer,
+    onError: (message: string) => void,
+    onReady?: () => void,
+  ): { dispose(): void };
+}
+declare global {
+  interface Window {
+    Zyxed3D?: Viewer3dApi;
+  }
+}
+
+// Разбор data: URI в байты (атрибут href у data: на больших файлах упирается
+// в лимиты браузеров, поэтому скачиваем/показываем через Blob).
+export function dataUrlToBytes(url: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(url.slice(url.indexOf(",") + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Ошибки загрузки модели — человеческим языком (Draco/meshopt/KTX2-сжатие
+// у нас не поддерживается: для него нужны отдельные декодеры).
+export function describeModelError(message: string, ru: boolean): string {
+  if (/draco|meshopt|ktx2|basisu/i.test(message)) {
+    return ru
+      ? "Модель сжата (Draco/Meshopt/KTX2) — такой формат пока не поддерживается. Экспортируйте GLB без сжатия."
+      : "The model uses Draco/Meshopt/KTX2 compression, which isn't supported yet. Export the GLB without compression.";
+  }
+  return ru ? "Не удалось открыть модель — файл повреждён или это не GLB." : "Couldn't open the model — the file is damaged or not a GLB.";
+}

@@ -18,7 +18,7 @@ import {
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../src/engine/gyro";
 import { loadBitmap, bitmapSize, closeBitmap } from "../src/engine/bitmap";
 import type { Hotspot, NotePdf, SceneMeta, TourManifest } from "../src/engine/types";
-import { fileIcon, mimeForName } from "../src/engine/files";
+import { dataUrlToBytes, describeModelError, fileIcon, isViewable3d, mimeForName } from "../src/engine/files";
 
 const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
@@ -167,10 +167,7 @@ function closeNote() {
 // лимиты браузеров).
 function downloadPdf(pdf: NotePdf) {
   if (!pdf.url) return;
-  const bin = atob(pdf.url.slice(pdf.url.indexOf(",") + 1));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const url = URL.createObjectURL(new Blob([bytes], { type: mimeForName(pdf.name) }));
+  const url = URL.createObjectURL(new Blob([dataUrlToBytes(pdf.url)], { type: mimeForName(pdf.name) }));
   const a = document.createElement("a");
   a.href = url;
   a.download = pdf.name;
@@ -178,6 +175,84 @@ function downloadPdf(pdf: NotePdf) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+// Окно 3D-модели (.glb) поверх тура. Код просмотрщика (three.js) лежит в
+// отдельном assets/viewer3d.js и подключён в index.html только если в туре
+// есть модель (см. bundle.ts) — window.Zyxed3D.
+let modelEl: HTMLElement | null = null;
+let modelHandle: { dispose(): void } | null = null;
+
+function closeModel() {
+  modelHandle?.dispose();
+  modelHandle = null;
+  modelEl?.remove();
+  modelEl = null;
+}
+
+function openModel(pdf: NotePdf) {
+  closeModel();
+  const ru = lang !== "en";
+  const overlay = document.createElement("div");
+  overlay.className = "pano-model";
+  overlay.dataset.hud = "1";
+  overlay.addEventListener("pointerdown", (e) => e.stopPropagation());
+  // Колесо над моделью приближает модель, а не панораму под ней.
+  overlay.addEventListener("wheel", (e) => e.stopPropagation());
+
+  const bar = document.createElement("div");
+  bar.className = "pano-model-bar";
+  const title = document.createElement("span");
+  title.className = "pano-model-title";
+  title.textContent = "🧊 " + pdf.name;
+  const dl = document.createElement("button");
+  dl.className = "pano-btn";
+  dl.textContent = "⬇";
+  dl.title = ru ? "Скачать файл" : "Download file";
+  dl.addEventListener("click", () => downloadPdf(pdf));
+  const close = document.createElement("button");
+  close.className = "pano-btn close";
+  close.textContent = "✕";
+  close.title = ru ? "Закрыть" : "Close";
+  close.addEventListener("click", closeModel);
+  bar.append(title, dl, close);
+
+  const stage = document.createElement("div");
+  stage.className = "pano-model-stage";
+  const msg = document.createElement("div");
+  msg.className = "pano-model-msg";
+  msg.textContent = ru ? "Загружаю модель…" : "Loading model…";
+  const hint = document.createElement("div");
+  hint.className = "pano-model-hint";
+  hint.textContent = ru
+    ? "Вращение — перетаскивание · масштаб — колесо/щипок · сдвиг — правая кнопка/два пальца"
+    : "Rotate — drag · zoom — wheel/pinch · pan — right button/two fingers";
+  hint.hidden = true;
+  overlay.append(bar, stage, msg, hint);
+  wrapEl.appendChild(overlay);
+  modelEl = overlay;
+
+  const api = window.Zyxed3D;
+  if (!api || !pdf.url) {
+    msg.classList.add("err");
+    msg.textContent = describeModelError("", ru);
+    return;
+  }
+  const bytes = dataUrlToBytes(pdf.url);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  modelHandle = api.mount(
+    stage,
+    buffer,
+    (message) => {
+      msg.hidden = false;
+      msg.classList.add("err");
+      msg.textContent = describeModelError(message, ru);
+    },
+    () => {
+      msg.hidden = true;
+      hint.hidden = false;
+    },
+  );
 }
 
 // Функция «Богатые заметки»: постоянная карточка с описанием/фото вместо
@@ -218,17 +293,38 @@ function openNote(h: Hotspot) {
     body.appendChild(text);
   }
   for (const pdf of h.pdfs ?? []) {
+    const ru = lang !== "en";
+    const viewable = !pdf.href && !!pdf.url && isViewable3d(pdf.name);
+    const row = document.createElement("div");
+    row.className = "pano-note-filerow";
     const btn = document.createElement("button");
     btn.className = "pano-note-pdf";
     const name = document.createElement("span");
     name.className = "pano-note-pdf-name";
-    name.textContent = fileIcon(pdf.name) + " " + pdf.name;
-    const dl = document.createElement("span");
-    dl.className = "pano-note-pdf-dl";
-    dl.textContent = "⬇ " + (lang === "en" ? "Download" : "Скачать");
-    btn.append(name, dl);
-    btn.addEventListener("click", () => downloadPdf(pdf));
-    body.appendChild(btn);
+    name.textContent = (pdf.href ? "🔗" : fileIcon(pdf.name)) + " " + pdf.name;
+    const action = document.createElement("span");
+    action.className = "pano-note-pdf-dl";
+    action.textContent = pdf.href
+      ? "↗ " + (ru ? "Открыть" : "Open")
+      : viewable
+        ? "👁 " + (ru ? "Смотреть 3D" : "View 3D")
+        : "⬇ " + (ru ? "Скачать" : "Download");
+    btn.append(name, action);
+    btn.addEventListener("click", () => {
+      if (pdf.href) window.open(pdf.href, "_blank", "noopener,noreferrer");
+      else if (viewable) openModel(pdf);
+      else downloadPdf(pdf);
+    });
+    row.appendChild(btn);
+    if (viewable) {
+      const dlBtn = document.createElement("button");
+      dlBtn.className = "pano-note-dlbtn";
+      dlBtn.textContent = "⬇";
+      dlBtn.title = ru ? "Скачать файл" : "Download file";
+      dlBtn.addEventListener("click", () => downloadPdf(pdf));
+      row.appendChild(dlBtn);
+    }
+    body.appendChild(row);
   }
   card.appendChild(body);
   wrapEl.appendChild(card);
@@ -312,6 +408,7 @@ async function goTo(index: number) {
   if (!scene) return;
   const token = ++loadToken;
   closeNote();
+  closeModel();
 
   titleEl.textContent = scene.title;
   subEl.textContent = `${index + 1} / ${scenes.length}`;
@@ -437,6 +534,11 @@ wrapEl.addEventListener(
 );
 
 window.addEventListener("keydown", (e) => {
+  // Пока открыта 3D-модель, клавиши не должны крутить панораму под ней.
+  if (modelEl) {
+    if (e.key === "Escape") closeModel();
+    return;
+  }
   if (e.key.startsWith("Arrow")) {
     keys.add(e.key);
     e.preventDefault();

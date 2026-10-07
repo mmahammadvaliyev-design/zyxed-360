@@ -345,3 +345,36 @@
   font-size: 12px;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* Вложения-«ряды» на карточке заметки: основная кнопка + (для 3D) отдельная ⬇ */
+.pano-note-filerow { display: flex; gap: 6px; align-items: stretch; }
+.pano-note-filerow .pano-note-pdf { flex: 1; min-width: 0; }
+.pano-note-dlbtn {
+  flex-shrink: 0; margin-top: 9px; padding: 0 12px;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px; color: #fff; font-size: 14px; cursor: pointer;
+}
+.pano-note-dlbtn:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* Окно 3D-модели поверх всего просмотрщика. */
+.pano-model {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column;
+  background: radial-gradient(ellipse at 50% 35%, #1a2636 0%, #0a1018 75%);
+  touch-action: none;
+}
+.pano-model-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
+}
+.pano-model-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; font-weight: 600; font-size: 14px; }
+.pano-model-stage { position: relative; flex: 1; min-height: 0; }
+.pano-model-msg {
+  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  text-align: center; padding: 0 24px; color: rgba(255, 255, 255, 0.8); font-size: 14px; pointer-events: none;
+}
+.pano-model-msg.err { color: #ffb4a8; }
+.pano-model-hint {
+  position: absolute; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
+  text-align: center; padding: 0 16px; color: rgba(255, 255, 255, 0.5); font-size: 12px; pointer-events: none;
+}

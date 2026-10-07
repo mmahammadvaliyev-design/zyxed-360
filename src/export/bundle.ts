@@ -22,6 +22,8 @@ import { getFeatureSnapshot, isFeatureEnabled } from "../features";
 import { getBranding } from "../branding";
 import { getAppLanguage } from "../appLanguage";
 import { PLAYER_ASSETS, PLAYER_HTML } from "./playerAssets.generated";
+import { VIEWER3D_JS } from "./viewer3dAsset.generated";
+import { isViewable3d } from "../engine/files";
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -107,7 +109,7 @@ async function exportHotspots(hotspots: Hotspot[]): Promise<Hotspot[]> {
         photoUrl: h.photo ? await blobToDataUrl(h.photo) : undefined,
         pdfs: h.pdfs?.length
           ? await Promise.all(
-              h.pdfs.map(async (p) => ({ name: p.name, url: p.data ? await blobToDataUrl(p.data) : undefined })),
+              h.pdfs.map(async (p) => ({ name: p.name, url: p.data ? await blobToDataUrl(p.data) : undefined, href: p.href })),
             )
           : undefined,
       }),
@@ -151,6 +153,15 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
   };
 
   const { js, css, assets } = collectPlayerAssets();
+  // 3D-просмотрщик (three.js, ~0,5 МБ) подключаем, только если в туре есть
+  // модель, которую можно показать — остальные туры остаются лёгкими.
+  const hasViewableModel =
+    !!manifest.features?.richNotes &&
+    manifest.scenes.some((s) => s.hotspots.some((h) => h.pdfs?.some((p) => p.url && isViewable3d(p.name))));
+  if (hasViewableModel) {
+    assets["assets/viewer3d.js"] = new TextEncoder().encode(VIEWER3D_JS);
+    js.unshift("assets/viewer3d.js");
+  }
   // Заголовки/подписи переходов — пользовательский текст; экранируем "<", чтобы
   // случайное "</script>" в подписи не сломало встроенный JSON и не превратилось
   // в разметку/скрипт на странице тура.

@@ -4,6 +4,7 @@
 // продолжить работу над туром на другом устройстве или в другом браузере,
 // а не только посмотреть уже опубликованный результат.
 import { mimeForName } from "../engine/files";
+import type { NotePdf } from "../engine/types";
 import { unzipSync, zipSync } from "fflate";
 import { createProject, db, uid, uniqueProjectTitle, type Hotspot, type Project } from "../db";
 import { slugify } from "./bundle";
@@ -11,7 +12,7 @@ import { slugify } from "./bundle";
 const BACKUP_VERSION = 1;
 
 interface BackupHotspot extends Omit<Hotspot, "photo" | "pdfs"> {
-  pdfRefs?: { name: string; ref: string }[]; // вложения заметки (любые файлы): имя + путь в архиве (старые копии — hotspotPdfs/…, читаются по ref)
+  pdfRefs?: { name: string; ref?: string; href?: string }[]; // вложения заметки (любые файлы): имя + путь в архиве (старые копии — hotspotPdfs/…, читаются по ref)
   photoRef?: string; // путь внутри архива, если у заметки есть фото
 }
 interface BackupScene {
@@ -53,8 +54,9 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
         photoRef = `hotspotPhotos/${h.id}.jpg`;
         files[photoRef] = new Uint8Array(await photo.arrayBuffer());
       }
-      const pdfRefs: { name: string; ref: string }[] = [];
+      const pdfRefs: { name: string; ref?: string; href?: string }[] = [];
       for (const [i, p] of (pdfs ?? []).entries()) {
+        if (p.href) { pdfRefs.push({ name: p.name, href: p.href }); continue; }
         if (!p.data) continue;
         const ref = `hotspotFiles/${h.id}-${i}`;
         files[ref] = new Uint8Array(await p.data.arrayBuffer());
@@ -129,8 +131,9 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
     const hotspots: Hotspot[] = s.hotspots.map((h) => {
       const { photoRef, pdfRefs, ...rest } = h;
       const photoBytes = photoRef ? files[photoRef] : undefined;
-      const pdfs = (pdfRefs ?? []).flatMap((p) => {
-        const bytes = files[p.ref];
+      const pdfs = (pdfRefs ?? []).flatMap((p): NotePdf[] => {
+        if (p.href) return [{ name: p.name, href: p.href }];
+        const bytes = p.ref ? files[p.ref] : undefined;
         return bytes ? [{ name: p.name, data: new Blob([new Uint8Array(bytes)], { type: mimeForName(p.name) }) }] : [];
       });
       return {

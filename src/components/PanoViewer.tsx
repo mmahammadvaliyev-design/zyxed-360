@@ -16,11 +16,13 @@ import {
   type View,
 } from "../engine/pano";
 import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
-import { ATTACHMENT_MAX_BYTES, checkAttachment, fileIcon } from "../engine/files";
+import { ATTACHMENT_MAX_BYTES, checkAttachment, describeModelError, fileIcon, isViewable3d, normalizeHref } from "../engine/files";
+import { loadViewer3d } from "../viewer3dLoader";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
 import { useFeature } from "../features";
 import { useBranding } from "../branding";
 import { useT } from "../i18n";
+import { getAppLanguage } from "../appLanguage";
 
 interface Props {
   scenes: Scene[]; // весь тур, по порядку
@@ -50,6 +52,12 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [fullscreen, setFullscreen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [noteHotspot, setNoteHotspot] = useState<Hotspot | null>(null);
+  // Открытая в карточке 3D-модель (.glb) и состояние её загрузки.
+  const [model3d, setModel3d] = useState<NotePdf | null>(null);
+  const [modelStatus, setModelStatus] = useState<"loading" | "ready" | { error: string }>("loading");
+  const modelStageRef = useRef<HTMLDivElement | null>(null);
+  const model3dRef = useRef(model3d);
+  model3dRef.current = model3d;
   const [notePhotoUrl, setNotePhotoUrl] = useState<string | null>(null);
   const [slideshow, setSlideshow] = useState(false);
   const richNotes = useFeature("richNotes");
@@ -110,6 +118,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   // просмотрщик целиком.
   const closeTopLayerRef = useRef<() => boolean>(() => false);
   closeTopLayerRef.current = () => {
+    if (model3dRef.current) { setModel3d(null); return true; }
     if (mapOpenRef.current) { setMapOpen(false); return true; }
     if (noteHotspotRef.current) { setNoteHotspot(null); return true; }
     if (placingRef.current) { setPlacing(null); return true; }
@@ -141,6 +150,42 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setNotePhotoUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [noteHotspot]);
+
+  // 3D-просмотрщик: код подключается при первом открытии модели; всё, что он
+  // создал (WebGL-контекст, геометрию), освобождаем при закрытии.
+  useEffect(() => {
+    const model = model3d;
+    const stage = modelStageRef.current;
+    if (!model?.data || !stage) return;
+    setModelStatus("loading");
+    let cancelled = false;
+    let handle: { dispose(): void } | null = null;
+    (async () => {
+      try {
+        const api = await loadViewer3d();
+        const buffer = await model.data!.arrayBuffer();
+        if (cancelled) return;
+        handle = api.mount(
+          stage,
+          buffer,
+          (message) => { if (!cancelled) setModelStatus({ error: describeModelError(message, getAppLanguage() !== "en") }); },
+          () => { if (!cancelled) setModelStatus("ready"); },
+        );
+      } catch {
+        if (!cancelled) setModelStatus({ error: describeModelError("", getAppLanguage() !== "en") });
+      }
+    })();
+    // Колесо над окном модели должно приближать модель, а не панораму под ней
+    // (на корне просмотрщика колесо слушается нативно).
+    const stopWheel = (e: WheelEvent) => e.stopPropagation();
+    const overlay = stage.parentElement;
+    overlay?.addEventListener("wheel", stopWheel);
+    return () => {
+      cancelled = true;
+      handle?.dispose();
+      overlay?.removeEventListener("wheel", stopWheel);
+    };
+  }, [model3d]);
 
   // Функция «Автотур»: пока включено, по таймеру переходим на следующую
   // панораму по кругу — рефы вместо scenes/currentId в зависимостях,
@@ -573,6 +618,21 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const next = current.filter((_, i) => i !== index);
     updateHotspot(hotspotId, { pdfs: next.length ? next : undefined });
   }
+  function openAttachment(pdf: NotePdf) {
+    if (pdf.href) { window.open(pdf.href, "_blank", "noopener,noreferrer"); return; }
+    if (isViewable3d(pdf.name) && pdf.data) { setModel3d(pdf); return; }
+    downloadPdf(pdf);
+  }
+  function addNoteLink(hotspotId: string) {
+    const raw = window.prompt(t("Ссылка (например, на модель в Autodesk Viewer):", "Link (e.g. to a model in Autodesk Viewer):"), "https://");
+    if (raw === null) return;
+    const href = normalizeHref(raw);
+    if (!href) { flash(t("Нужна ссылка вида https://…", "A link like https://… is required")); return; }
+    const defaultName = new URL(href).hostname.replace(/^www\./, "");
+    const name = window.prompt(t("Название ссылки:", "Link title:"), defaultName)?.trim() || defaultName;
+    const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
+    updateHotspot(hotspotId, { pdfs: [...current, { name, href }] });
+  }
   function downloadPdf(pdf: NotePdf) {
     if (!pdf.data) return;
     const url = URL.createObjectURL(pdf.data);
@@ -758,10 +818,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                         onChange={(e) => { addNotePdfs(selected.id, e.target.files); e.target.value = ""; }}
                       />
                     </label>
+                    <button className="pano-btn wide" onClick={() => addNoteLink(selected.id)}>{t("+ Ссылка", "+ Link")}</button>
                   </div>
                   {selected.pdfs?.map((pdf, i) => (
                     <div key={i} className="row" style={{ gap: 6 }}>
-                      <span className="pano-pdf-name grow" title={pdf.name}>{fileIcon(pdf.name)} {pdf.name}</span>
+                      <span className="pano-pdf-name grow" title={pdf.href ?? pdf.name}>{pdf.href ? "🔗" : fileIcon(pdf.name)} {pdf.name}</span>
                       <button className="pano-btn" onClick={() => removeNotePdf(selected.id, i)} title={t("Убрать файл", "Remove file")}>✕</button>
                     </div>
                   ))}
@@ -838,12 +899,33 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             </div>
             {noteHotspot.note && <div className="pano-note-text">{noteHotspot.note}</div>}
             {noteHotspot.pdfs?.map((pdf, i) => (
-              <button key={i} className="pano-note-pdf" onClick={() => downloadPdf(pdf)}>
-                <span className="pano-note-pdf-name">{fileIcon(pdf.name)} {pdf.name}</span>
-                <span className="pano-note-pdf-dl">⬇ {t("Скачать", "Download")}</span>
-              </button>
+              <div key={i} className="pano-note-filerow">
+                <button className="pano-note-pdf" onClick={() => openAttachment(pdf)}>
+                  <span className="pano-note-pdf-name">{pdf.href ? "🔗" : fileIcon(pdf.name)} {pdf.name}</span>
+                  <span className="pano-note-pdf-dl">
+                    {pdf.href ? `↗ ${t("Открыть", "Open")}` : isViewable3d(pdf.name) ? `👁 ${t("Смотреть 3D", "View 3D")}` : `⬇ ${t("Скачать", "Download")}`}
+                  </span>
+                </button>
+                {!pdf.href && isViewable3d(pdf.name) && (
+                  <button className="pano-note-dlbtn" onClick={() => downloadPdf(pdf)} title={t("Скачать файл", "Download file")} aria-label={t("Скачать файл", "Download file")}>⬇</button>
+                )}
+              </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {model3d && (
+        <div className="pano-model" data-hud onPointerDown={(e) => e.stopPropagation()}>
+          <div className="pano-model-bar">
+            <span className="pano-model-title">🧊 {model3d.name}</span>
+            <button className="pano-btn" onClick={() => downloadPdf(model3d)} title={t("Скачать файл", "Download file")}>⬇</button>
+            <button className="pano-btn close" onClick={() => setModel3d(null)} title={t("Закрыть", "Close")}>✕</button>
+          </div>
+          <div className="pano-model-stage" ref={modelStageRef} />
+          {modelStatus === "loading" && <div className="pano-model-msg">{t("Загружаю модель…", "Loading model…")}</div>}
+          {typeof modelStatus === "object" && <div className="pano-model-msg err">{modelStatus.error}</div>}
+          {modelStatus === "ready" && <div className="pano-model-hint">{t("Вращение — перетаскивание · масштаб — колесо/щипок · сдвиг — правая кнопка/два пальца", "Rotate — drag · zoom — wheel/pinch · pan — right button/two fingers")}</div>}
         </div>
       )}
 

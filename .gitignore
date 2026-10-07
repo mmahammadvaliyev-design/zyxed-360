@@ -5,3 +5,5 @@ public/player
 src/export/playerAssets.generated.ts
 *.local
 .DS_Store
+src/export/viewer3dAsset.generated.ts
+build-viewer3d

@@ -9,6 +9,9 @@ export interface NotePdf {
   name: string; // имя файла, под которым он скачивается
   data?: Blob;
   url?: string;
+  // Вместо файла — ссылка (например, на модель Navisworks в Autodesk Viewer):
+  // тогда data/url нет, на карточке кнопка «Открыть».
+  href?: string;
 }
 
 export interface Hotspot {
