@@ -17,7 +17,7 @@
 // открывались опубликованные туры — экспорт падал с "Failed to fetch".
 import { zipSync } from "fflate";
 import { db, type Hotspot } from "../db";
-import type { SceneMeta, TourManifest } from "../engine/types";
+import type { LineDef, SceneMeta, TourManifest } from "../engine/types";
 import { getFeatureSnapshot, isFeatureEnabled } from "../features";
 import { getBranding } from "../branding";
 import { getAppLanguage } from "../appLanguage";
@@ -117,6 +117,24 @@ async function exportHotspots(hotspots: Hotspot[]): Promise<Hotspot[]> {
   );
 }
 
+// Линия в БД хранит фото/файлы документации как Blob — в манифесте нужны
+// data: URI (как у заметок).
+async function exportLines(lines: LineDef[]): Promise<LineDef[]> {
+  return Promise.all(
+    lines.map(async (l): Promise<LineDef> => ({
+      id: l.id,
+      name: l.name,
+      color: l.color,
+      hidden: l.hidden || undefined,
+      note: l.note || undefined,
+      photoUrl: l.photo ? await blobToDataUrl(l.photo) : undefined,
+      pdfs: l.pdfs?.length
+        ? await Promise.all(l.pdfs.map(async (p) => ({ name: p.name, url: p.data ? await blobToDataUrl(p.data) : undefined, href: p.href })))
+        : undefined,
+    })),
+  );
+}
+
 export async function exportProjectZip(projectId: string): Promise<{ blob: Blob; filename: string }> {
   const project = await db.projects.get(projectId);
   if (!project) throw new Error("Проект не найден");
@@ -150,7 +168,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     features: getFeatureSnapshot(),
     branding: getBranding(),
     lang: getAppLanguage(),
-    lines: isFeatureEnabled("lines") && project.lines?.length ? project.lines : undefined,
+    lines: isFeatureEnabled("lines") && project.lines?.length ? await exportLines(project.lines) : undefined,
     mapImage: isFeatureEnabled("map") && project.mapImage ? await blobToDataUrl(project.mapImage) : undefined,
   };
 
@@ -159,7 +177,8 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
   // модель, которую можно показать — остальные туры остаются лёгкими.
   const hasViewableModel =
     !!manifest.features?.richNotes &&
-    manifest.scenes.some((s) => s.hotspots.some((h) => h.pdfs?.some((p) => p.url && isViewable3d(p.name))));
+    (manifest.scenes.some((s) => s.hotspots.some((h) => h.pdfs?.some((p) => p.url && isViewable3d(p.name)))) ||
+      !!manifest.lines?.some((l) => l.pdfs?.some((p) => p.url && isViewable3d(p.name))));
   if (hasViewableModel) {
     assets["assets/viewer3d.js"] = new TextEncoder().encode(VIEWER3D_JS);
     js.unshift("assets/viewer3d.js");

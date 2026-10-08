@@ -10,6 +10,11 @@ import type { LineDef, LinePoint, Stroke } from "./types";
 // Палитра по умолчанию — насыщенные цвета, читаемые поверх любых панорам.
 export const LINE_COLORS = ["#ff3b30", "#ffd60a", "#34c759", "#0a84ff", "#bf5af2", "#ff9f0a", "#00c7be", "#ff2d92"];
 
+// У линии есть что показать по клику (текст/фото/файлы/ссылки).
+export function lineHasDocs(l: LineDef): boolean {
+  return !!(l.note?.trim() || l.photo || l.photoUrl || l.pdfs?.length);
+}
+
 export function nextLineColor(lines: LineDef[]): string {
   const used = new Set(lines.map((l) => l.color.toLowerCase()));
   return LINE_COLORS.find((c) => !used.has(c)) ?? LINE_COLORS[lines.length % LINE_COLORS.length];
@@ -133,6 +138,7 @@ export function drawStrokes(
   lines: LineDef[],
   focusId: string | null,
   draft?: DraftStroke | null,
+  ghostHidden = false, // в режиме правки «невидимые» линии рисуем бледно, чтобы автор видел зоны
 ): void {
   const scale = height / (2 * basis.tanHalf);
   const w = clamp(WIDTH_RAD * scale, MIN_WIDTH_PX, MAX_WIDTH_PX);
@@ -154,7 +160,10 @@ export function drawStrokes(
   for (const s of strokes) {
     const def = lines.find((l) => l.id === s.lineId);
     if (!def || s.points.length < 2) continue;
-    const strength = focus && focus !== s.lineId ? 0.22 : 1;
+    // Невидимая линия появляется только когда её выбрали в легенде.
+    const hiddenNow = !!def.hidden && focus !== def.id;
+    if (hiddenNow && !ghostHidden) continue;
+    const strength = hiddenNow ? 0.28 : focus && focus !== s.lineId ? 0.22 : 1;
     paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength);
   }
 
@@ -228,4 +237,37 @@ export function smoothAndSimplify(points: LinePoint[], tolDeg = 0.18): LinePoint
     }
   }
   return pts.filter((_, i) => keep[i]).map((p) => ({ yaw: wrapAngle(p.yaw + y0), pitch: p.pitch }));
+}
+
+// Клик/тап по зоне линии: ближайшая линия к точке (x, y) в пикселях кадра,
+// если она ближе допуска (≥ толщины маркера и минимум 18 px — пальцу нужен
+// запас). Работает и для «невидимых» линий.
+export function hitTestStrokes(
+  strokes: Stroke[],
+  lines: LineDef[],
+  basis: Basis,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+): string | null {
+  const scale = height / (2 * basis.tanHalf);
+  const tol = Math.max(18, clamp(WIDTH_RAD * scale, MIN_WIDTH_PX, MAX_WIDTH_PX));
+  let best: { id: string; d: number } | null = null;
+  for (const s of strokes) {
+    if (!lines.some((l) => l.id === s.lineId) || s.points.length < 2) continue;
+    const pts = samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l2 = dx * dx + dy * dy;
+      const t = l2 < 1e-9 ? 0 : clamp(((x - a.x) * dx + (y - a.y) * dy) / l2, 0, 1);
+      const d = Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy));
+      if (d <= tol && (!best || d < best.d)) best = { id: s.lineId, d };
+    }
+  }
+  return best ? best.id : null;
 }

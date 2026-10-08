@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uid, type Hotspot, type Scene } from "../db";
 import type { LineDef, LinePoint, NotePdf, Stroke } from "../engine/types";
-import { angularDistance, drawStrokes, nextLineColor, smoothAndSimplify } from "../engine/lines";
+import { angularDistance, drawStrokes, hitTestStrokes, lineHasDocs, nextLineColor, smoothAndSimplify } from "../engine/lines";
 import {
   basisFor,
   clamp,
@@ -58,6 +58,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [activeLineId, setActiveLineId] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
+  const [linesVisible, setLinesVisible] = useState(true); // быстрый показ/скрытие всех линий в просмотре
+  const [lineDocOpen, setLineDocOpen] = useState(false); // раскрыт редактор документации линии
   const [smoothPoints, setSmoothPoints] = useState(true); // «по точкам» → плавная кривая
   const smoothRef = useRef(true);
   smoothRef.current = smoothPoints;
@@ -132,6 +134,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   linesRef.current = lines;
   const linesEnabledRef = useRef(linesEnabled);
   linesEnabledRef.current = linesEnabled;
+  const linesVisibleRef = useRef(linesVisible);
+  linesVisibleRef.current = linesVisible;
+  const editRef = useRef(edit);
+  editRef.current = edit;
   const noteHotspotRef = useRef(noteHotspot);
   noteHotspotRef.current = noteHotspot;
   const placingRef = useRef(placing);
@@ -285,13 +291,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      if (!linesEnabledRef.current) return;
+      if (!linesEnabledRef.current || !linesVisibleRef.current) return;
       const strokes = scenesRef.current.find((s) => s.id === currentIdRef.current)?.strokes ?? [];
       const active = linesRef.current.find((l) => l.id === activeLineIdRef.current);
       const draft = draftRef.current.length && active
         ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current }
         : null;
-      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft);
+      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current);
     };
 
     let raf = 0;
@@ -400,12 +406,12 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         draftRef.current = [p];
         setDraftCount(1);
         freeDrawRef.current = { pointerId: e.pointerId };
-        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+        try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* указатель уже неактивен — жест всё равно отработает */ }
       }
       return;
     }
     downTargetRef.current = e.target as HTMLElement;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* указатель уже неактивен */ }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     dragRef.current = { active: true, x: e.clientX, y: e.clientY, moved: 0, pinch: pinchDistance() };
     velRef.current = { yaw: 0, pitch: 0 };
@@ -418,6 +424,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }
 
   const pointerMove = (e: React.PointerEvent) => {
+    // Над кликабельной линией (с документацией) мышь показывает «руку».
+    if (e.pointerType === "mouse" && e.buttons === 0 && wrapRef.current) {
+      wrapRef.current.style.cursor = !lineModeRef.current && lineAt(e.clientX, e.clientY) ? "pointer" : "";
+    }
     if (freeDrawRef.current?.pointerId === e.pointerId) {
       const p = anglesAt(e.clientX, e.clientY);
       const last = draftRef.current[draftRef.current.length - 1];
@@ -495,6 +505,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       const h = scene?.hotspots.find((x) => x.id === spot.dataset.spot);
       if (h) activateHotspot(h);
       return;
+    }
+    // Функция «Линии»: тап по зоне линии с документацией открывает её карточку.
+    if (!target?.closest("[data-hud]") && !placing && !lineModeRef.current) {
+      const hitId = lineAt(clientX, clientY);
+      if (hitId) {
+        openLineCard(hitId);
+        if (editRef.current) setActiveLineId(hitId);
+        return;
+      }
     }
     if (noteHotspot && !target?.closest("[data-hud]")) {
       setNoteHotspot(null);
@@ -733,6 +752,46 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (!scene || !onChange || !activeLineId) return;
     onChange({ ...scene, strokes: (scene.strokes ?? []).filter((st) => st.lineId !== activeLineId) });
   }
+  // Документация линии — тот же формат, что у заметки; карточку показываем
+  // тем же окном, собирая «псевдо-заметку» из линии.
+  function updateLine(id: string, patch: Partial<LineDef>) {
+    onLinesChange?.(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+  function lineToCard(l: LineDef): Hotspot {
+    return { id: `line:${l.id}`, yaw: 0, pitch: 0, label: l.name, targetId: null, note: l.note, photo: l.photo, pdfs: l.pdfs };
+  }
+  function openLineCard(id: string) {
+    const def = linesRef.current.find((l) => l.id === id);
+    if (def && lineHasDocs(def)) setNoteHotspot(lineToCard(def));
+  }
+  // Линия под точкой касания (только линии, у которых есть документация).
+  function lineAt(clientX: number, clientY: number): string | null {
+    if (!linesEnabledRef.current || !linesVisibleRef.current || !scene?.strokes?.length) return null;
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const docs = linesRef.current.filter(lineHasDocs);
+    if (!docs.length) return null;
+    const basis = basisFor(viewRef.current, rect.width, rect.height);
+    return hitTestStrokes(scene.strokes, docs, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
+  }
+  async function pickLinePhoto(id: string, file: File | undefined) {
+    if (!file) return;
+    updateLine(id, { photo: await prepareHotspotPhoto(file) });
+  }
+  function addLineFiles(id: string, files: FileList | null) {
+    const added = collectAttachments(files);
+    if (!added.length) return;
+    updateLine(id, { pdfs: [...(lines.find((l) => l.id === id)?.pdfs ?? []), ...added] });
+  }
+  function addLineLink(id: string) {
+    const link = promptLink();
+    if (link) updateLine(id, { pdfs: [...(lines.find((l) => l.id === id)?.pdfs ?? []), link] });
+  }
+  function removeLinePdf(id: string, index: number) {
+    const next = (lines.find((l) => l.id === id)?.pdfs ?? []).filter((_, i) => i !== index);
+    updateLine(id, { pdfs: next.length ? next : undefined });
+  }
+
   function renameLine(id: string) {
     const line = lines.find((l) => l.id === id);
     const name = line && window.prompt(t("Название линии:", "Line name:"), line.name)?.trim();
@@ -777,10 +836,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   // Вложения заметки (PDF, DWG, 3D-модели — любой файл): можно прикрепить
   // несколько, каждый скачивается отдельной кнопкой на карточке.
-  function addNotePdfs(hotspotId: string, files: FileList | null) {
-    if (!files?.length) return;
-    const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
+  function collectAttachments(files: FileList | null): NotePdf[] {
     const added: NotePdf[] = [];
+    if (!files?.length) return added;
     for (const file of Array.from(files)) {
       const problem = checkAttachment(file);
       if (problem === "blocked") { flash(t(`«${file.name}» — такой тип файла прикрепить нельзя`, `"${file.name}" — this file type can't be attached`)); continue; }
@@ -792,7 +850,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       }
       added.push({ name: file.name, data: file });
     }
-    if (added.length) updateHotspot(hotspotId, { pdfs: [...current, ...added] });
+    return added;
+  }
+  function addNotePdfs(hotspotId: string, files: FileList | null) {
+    const added = collectAttachments(files);
+    if (!added.length) return;
+    const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
+    updateHotspot(hotspotId, { pdfs: [...current, ...added] });
   }
   function removeNotePdf(hotspotId: string, index: number) {
     const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
@@ -804,15 +868,20 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (isViewable3d(pdf.name) && pdf.data) { setModel3d(pdf); return; }
     downloadPdf(pdf);
   }
-  function addNoteLink(hotspotId: string) {
+  function promptLink(): NotePdf | null {
     const raw = window.prompt(t("Ссылка (например, на модель в Autodesk Viewer):", "Link (e.g. to a model in Autodesk Viewer):"), "https://");
-    if (raw === null) return;
+    if (raw === null) return null;
     const href = normalizeHref(raw);
-    if (!href) { flash(t("Нужна ссылка вида https://…", "A link like https://… is required")); return; }
+    if (!href) { flash(t("Нужна ссылка вида https://…", "A link like https://… is required")); return null; }
     const defaultName = new URL(href).hostname.replace(/^www\./, "");
     const name = window.prompt(t("Название ссылки:", "Link title:"), defaultName)?.trim() || defaultName;
+    return { name, href };
+  }
+  function addNoteLink(hotspotId: string) {
+    const link = promptLink();
+    if (!link) return;
     const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
-    updateHotspot(hotspotId, { pdfs: [...current, { name, href }] });
+    updateHotspot(hotspotId, { pdfs: [...current, link] });
   }
   function downloadPdf(pdf: NotePdf) {
     if (!pdf.data) return;
@@ -929,6 +998,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           {slideshowEnabled && scenes.length > 1 && (
             <button className={`pano-btn${slideshow ? " on" : ""}`} onClick={() => setSlideshow(!slideshow)} title={t("Автотур (слайд-шоу)", "Auto tour (slideshow)")}>▶</button>
           )}
+          {linesEnabled && lines.length > 0 && (
+            <button className={`pano-btn${linesVisible ? " on" : ""}`} onClick={() => { setLinesVisible(!linesVisible); if (linesVisible) setNoteHotspot((h) => (h?.id.startsWith("line:") ? null : h)); }} title={linesVisible ? t("Скрыть линии", "Hide lines") : t("Показать линии", "Show lines")}>〰</button>
+          )}
           <button className={`pano-btn${autorotate ? " on" : ""}`} onClick={() => { setAutorotate(!autorotate); setGyro(false); }} title={t("Автоповорот", "Auto-rotate")}>↻</button>
           {GYRO_SUPPORTED && (
             <button className={`pano-btn${gyro ? " on" : ""}`} onClick={toggleGyro} title={t("Поворот по наклону телефона", "Rotate by tilting the phone")}>🧭</button>
@@ -943,7 +1015,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         </div>
       </div>
 
-      {linesEnabled && sceneLineIds.length > 0 && (
+      {linesEnabled && linesVisible && sceneLineIds.length > 0 && (
         <div className="pano-legend" data-hud onPointerDown={(e) => e.stopPropagation()}>
           {sceneLineIds.map((id) => {
             const def = lines.find((l) => l.id === id);
@@ -952,11 +1024,18 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
               <button
                 key={id}
                 className={`pano-legend-chip${focusLineId === id ? " on" : ""}`}
-                onClick={() => setFocusLineId(focusLineId === id ? null : id)}
-                title={t("Подсветить линию", "Highlight line")}
+                onClick={() => {
+                  const next = focusLineId === id ? null : id;
+                  setFocusLineId(next);
+                  if (next) openLineCard(id);
+                  else if (noteHotspot?.id === `line:${id}`) setNoteHotspot(null);
+                }}
+                title={lineHasDocs(def) ? t("Подсветить и открыть документацию", "Highlight and open documentation") : t("Подсветить линию", "Highlight line")}
               >
                 <span className="pano-legend-dot" style={{ background: def.color }} />
                 {def.name}
+                {lineHasDocs(def) && <span className="pano-legend-doc">📎</span>}
+                {def.hidden && <span className="pano-legend-doc">🙈</span>}
               </button>
             );
           })}
@@ -1088,11 +1167,50 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                           onChange={(e) => recolorLine(activeLine.id, e.target.value)}
                           title={t("Цвет линии", "Line colour")}
                         />
+                        <button className={`pano-btn${activeLine.hidden ? " on" : ""}`} onClick={() => updateLine(activeLine.id, { hidden: !activeLine.hidden })} title={activeLine.hidden ? t("Линия невидима в туре (зона кликабельна) — показать", "Line is invisible in the tour (zone still clickable) — show") : t("Сделать невидимой в туре (зона останется кликабельной)", "Make invisible in the tour (zone stays clickable)")}>{activeLine.hidden ? "🙈" : "👁"}</button>
                         <button className="pano-btn" onClick={() => renameLine(activeLine.id)} title={t("Переименовать", "Rename")}>✎</button>
                         <button className="pano-btn" onClick={() => deleteLine(activeLine.id)} title={t("Удалить линию", "Delete line")}>🗑</button>
                       </>
                     )}
                   </div>
+                  {activeLine && !lineMode && (
+                    <>
+                      <button className={`pano-btn wide${lineDocOpen ? " on" : ""}`} onClick={() => setLineDocOpen(!lineDocOpen)}>
+                        📎 {t("Документация линии", "Line documentation")}{lineHasDocs(activeLine) ? " ✓" : ""}
+                      </button>
+                      {lineDocOpen && (
+                        <>
+                          <textarea
+                            className="pano-input"
+                            rows={3}
+                            placeholder={t("Описание линии (показывается по клику на трубу)", "Line description (shown when the pipe is tapped)")}
+                            value={activeLine.note ?? ""}
+                            onChange={(e) => updateLine(activeLine.id, { note: e.target.value })}
+                          />
+                          <div className="row" style={{ gap: 6 }}>
+                            <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
+                              {activeLine.photo ? t("Заменить фото", "Replace photo") : t("+ Фото", "+ Photo")}
+                              <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { pickLinePhoto(activeLine.id, e.target.files?.[0]); e.target.value = ""; }} />
+                            </label>
+                            {activeLine.photo && <button className="pano-btn" onClick={() => updateLine(activeLine.id, { photo: undefined })} title={t("Убрать фото", "Remove photo")}>✕ {t("фото", "photo")}</button>}
+                          </div>
+                          <div className="row" style={{ gap: 6 }}>
+                            <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
+                              {t("+ Файл (PDF, DWG, 3D…)", "+ File (PDF, DWG, 3D…)")}
+                              <input type="file" multiple style={{ display: "none" }} onChange={(e) => { addLineFiles(activeLine.id, e.target.files); e.target.value = ""; }} />
+                            </label>
+                            <button className="pano-btn wide" onClick={() => addLineLink(activeLine.id)}>{t("+ Ссылка", "+ Link")}</button>
+                          </div>
+                          {activeLine.pdfs?.map((pdf, i) => (
+                            <div key={i} className="row" style={{ gap: 6 }}>
+                              <span className="pano-pdf-name grow" title={pdf.href ?? pdf.name}>{pdf.href ? "🔗" : fileIcon(pdf.name)} {pdf.name}</span>
+                              <button className="pano-btn" onClick={() => removeLinePdf(activeLine.id, i)} title={t("Убрать файл", "Remove file")}>✕</button>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </>
+                  )}
                   <div className="row" style={{ gap: 6 }}>
                     <button className={`pano-btn wide${lineMode === "points" ? " on" : ""}`} onClick={() => startLineMode("points")}>〰 {t("По точкам", "By points")}</button>
                     <button className={`pano-btn wide${lineMode === "free" ? " on" : ""}`} onClick={() => startLineMode("free")}>✍ {t("От руки", "Freehand")}</button>

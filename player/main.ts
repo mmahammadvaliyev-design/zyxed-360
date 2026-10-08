@@ -18,7 +18,8 @@ import {
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../src/engine/gyro";
 import { loadBitmap, bitmapSize, closeBitmap } from "../src/engine/bitmap";
 import type { Hotspot, NotePdf, SceneMeta, TourManifest } from "../src/engine/types";
-import { drawStrokes } from "../src/engine/lines";
+import { drawStrokes, hitTestStrokes, lineHasDocs } from "../src/engine/lines";
+import type { LineDef } from "../src/engine/types";
 import { dataUrlToBytes, describeModelError, fileIcon, isViewable3d, mimeForName } from "../src/engine/files";
 
 const ROTATE_SPEED = rad(9);
@@ -35,6 +36,7 @@ app.innerHTML = `
       <div class="pano-title"><b id="title"></b><span class="pano-sub" id="sub"></span></div>
       <div class="pano-tools">
         <button class="pano-btn" id="btn-slideshow" title="Автотур (слайд-шоу)" hidden>▶</button>
+        <button class="pano-btn on" id="btn-lines" title="Скрыть линии" hidden>〰</button>
         <button class="pano-btn" id="btn-rotate" title="Автоповорот">↻</button>
         <button class="pano-btn" id="btn-gyro" title="Поворот по наклону телефона" hidden>🧭</button>
         <button class="pano-btn" id="btn-fs" title="Во весь экран" hidden>⤢</button>
@@ -70,6 +72,7 @@ const stripEl = document.getElementById("strip")!;
 const toastEl = document.getElementById("toast")!;
 const btnSlideshow = document.getElementById("btn-slideshow") as HTMLButtonElement;
 const btnRotate = document.getElementById("btn-rotate") as HTMLButtonElement;
+const btnLines = document.getElementById("btn-lines") as HTMLButtonElement;
 const btnGyro = document.getElementById("btn-gyro") as HTMLButtonElement;
 const btnFs = document.getElementById("btn-fs") as HTMLButtonElement;
 const mapMini = document.getElementById("map-mini") as HTMLButtonElement;
@@ -140,12 +143,32 @@ function currentScene(): SceneMeta | undefined {
 // Функция «Линии»: легенда — линии, проходящие через текущую панораму; нажатие
 // подсвечивает линию (остальные приглушаются), повторное — снимает подсветку.
 let focusLineId: string | null = null;
+let linesVisible = true;
+
+// Документация линии показывается тем же окном, что и заметка: собираем
+// «псевдо-заметку» из линии.
+function lineToHotspot(l: LineDef): Hotspot {
+  return { id: `line:${l.id}`, yaw: 0, pitch: 0, label: l.name, targetId: null, note: l.note, photoUrl: l.photoUrl, pdfs: l.pdfs };
+}
+
+// Линия под точкой касания (только те, у которых есть документация).
+function lineAt(clientX: number, clientY: number): LineDef | null {
+  const scene = currentScene();
+  if (!manifest?.features?.lines || !linesVisible || !scene?.strokes?.length) return null;
+  const docs = (manifest.lines ?? []).filter(lineHasDocs);
+  if (!docs.length) return null;
+  const rect = wrapEl.getBoundingClientRect();
+  const basis = basisFor(view, rect.width, rect.height);
+  const id = hitTestStrokes(scene.strokes, docs, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
+  return docs.find((l) => l.id === id) ?? null;
+}
+
 function renderLegend() {
   legendEl.innerHTML = "";
   const lines = manifest.lines ?? [];
   const strokes = currentScene()?.strokes ?? [];
   const present = lines.filter((l) => strokes.some((st) => st.lineId === l.id));
-  legendEl.hidden = !manifest.features?.lines || present.length === 0;
+  legendEl.hidden = !manifest.features?.lines || !linesVisible || present.length === 0;
   for (const l of present) {
     const chip = document.createElement("button");
     chip.className = "pano-legend-chip" + (focusLineId === l.id ? " on" : "");
@@ -153,8 +176,23 @@ function renderLegend() {
     dot.className = "pano-legend-dot";
     dot.style.background = l.color;
     chip.append(dot, document.createTextNode(l.name));
+    if (lineHasDocs(l)) {
+      const clip = document.createElement("span");
+      clip.className = "pano-legend-doc";
+      clip.textContent = "📎";
+      chip.appendChild(clip);
+      chip.title = "Подсветить и открыть документацию";
+    }
+    if (l.hidden) {
+      const eye = document.createElement("span");
+      eye.className = "pano-legend-doc";
+      eye.textContent = "🙈";
+      chip.appendChild(eye);
+    }
     chip.addEventListener("click", () => {
       focusLineId = focusLineId === l.id ? null : l.id;
+      if (focusLineId && lineHasDocs(l)) openNote(lineToHotspot(l));
+      else if (!focusLineId) closeNote();
       renderLegend();
     });
     legendEl.appendChild(chip);
@@ -492,7 +530,7 @@ async function goTo(index: number) {
 // ── Ввод ────────────────────────────────────────────────────────
 wrapEl.addEventListener("pointerdown", (e) => {
   downTarget = e.target as HTMLElement;
-  wrapEl.setPointerCapture?.(e.pointerId);
+  try { wrapEl.setPointerCapture?.(e.pointerId); } catch { /* указатель уже неактивен */ }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   drag.active = true;
   drag.x = e.clientX;
@@ -504,6 +542,7 @@ wrapEl.addEventListener("pointerdown", (e) => {
 });
 
 wrapEl.addEventListener("pointermove", (e) => {
+  if (e.pointerType === "mouse" && e.buttons === 0) wrapEl.style.cursor = lineAt(e.clientX, e.clientY) ? "pointer" : "";
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (!drag.active) return;
@@ -541,17 +580,25 @@ function onPointerUp(e: PointerEvent) {
   pointers.delete(e.pointerId);
   if (pointers.size === 0) drag.active = false;
   drag.pinch = pinchDistance();
-  if (drag.moved < TAP_SLOP) handleTap(downTarget);
+  if (drag.moved < TAP_SLOP) handleTap(downTarget, e.clientX, e.clientY);
 }
 wrapEl.addEventListener("pointerup", onPointerUp);
 wrapEl.addEventListener("pointercancel", onPointerUp);
 
-function handleTap(target: HTMLElement | null) {
+function handleTap(target: HTMLElement | null, clientX: number, clientY: number) {
   const spot = target?.closest<HTMLElement>("[data-spot]");
   if (spot) {
     const h = currentScene()?.hotspots.find((x) => x.id === spot.dataset.spot);
     if (h) activateHotspot(h);
     return;
+  }
+  // Функция «Линии»: тап по зоне линии с документацией (даже невидимой) открывает карточку.
+  if (!target?.closest("[data-hud]")) {
+    const line = lineAt(clientX, clientY);
+    if (line) {
+      openNote(lineToHotspot(line));
+      return;
+    }
   }
   if (noteEl && !target?.closest("[data-hud]")) closeNote();
 }
@@ -579,6 +626,14 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "-") view.fov = clamp(view.fov * 1.15, MIN_FOV, MAX_FOV);
 });
 window.addEventListener("keyup", (e) => keys.delete(e.key));
+
+btnLines.addEventListener("click", () => {
+  linesVisible = !linesVisible;
+  btnLines.classList.toggle("on", linesVisible);
+  btnLines.title = linesVisible ? "Скрыть линии" : "Показать линии";
+  if (!linesVisible) closeNote();
+  renderLegend();
+});
 
 btnRotate.addEventListener("click", () => {
   autorotate = !autorotate;
@@ -727,7 +782,7 @@ function drawLinesLayer(basis: Basis, width: number, height: number, scene: Scen
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  if (!manifest?.features?.lines || !scene?.strokes?.length) return;
+  if (!manifest?.features?.lines || !linesVisible || !scene?.strokes?.length) return;
   drawStrokes(ctx, width, height, basis, scene.strokes, manifest.lines ?? [], focusLineId);
 }
 
@@ -753,6 +808,7 @@ function startTour(data: TourManifest) {
   if (!scenes.length) throw new Error("empty");
   topBar.hidden = false;
   if (manifest.features?.slideshow && scenes.length > 1) btnSlideshow.hidden = false;
+  if (manifest.features?.lines && manifest.lines?.length) btnLines.hidden = false;
   lang = manifest.lang === "en" ? "en" : "ru";
   // Функция «Карта тура»: план — только если был загружен и функция была
   // включена на момент экспорта (manifest.mapImage, см. bundle.ts).

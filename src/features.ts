@@ -111,9 +111,9 @@ export const FEATURES: FeatureFlag[] = [
     label: "Линии (хайлайтер)",
     labelEn: "Lines (highlighter)",
     description:
-      "Отмечайте трассу трубопровода/кабеля прямо на панорамах цветным маркером: создаёте линию (например, A1), рисуете её на каждой панораме — по точкам или от руки. В туре — легенда: нажали на линию, и она подсвечивается на всех панорамах, где проходит.",
+      "Отмечайте трассу трубопровода/кабеля на панорамах цветным маркером — по точкам или от руки — и прикрепляйте к линии документацию (текст, фото, PDF, чертежи, 3D, ссылки). Клик по зоне линии в туре открывает документацию; линию можно сделать невидимой (зона остаётся кликабельной). Слева — легенда с цветами, в тулбаре — кнопка быстрого включения/выключения линий.",
     descriptionEn:
-      "Mark a pipeline/cable route right on the panoramas with a coloured highlighter: create a line (e.g. A1) and draw it on each panorama — point by point or freehand. The tour has a legend: tap a line and it's highlighted on every panorama it passes through.",
+      "Mark a pipeline/cable route on the panoramas with a coloured highlighter — point by point or freehand — and attach documentation to the line (text, photo, PDF, drawings, 3D, links). Tapping a line's zone in the tour opens its documentation; a line can be made invisible (its zone stays clickable). A colour legend sits on the left, and a toolbar button toggles all lines on/off.",
     defaultOn: true,
   },
 ];

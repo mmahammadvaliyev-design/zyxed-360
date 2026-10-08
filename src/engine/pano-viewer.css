@@ -403,3 +403,10 @@
    точки линий/заметок у самого верха кадра); кнопки и заголовок ловят нажатия сами. */
 .pano-top { pointer-events: none; }
 .pano-top > * { pointer-events: auto; }
+
+/* Легенда линий — «окно» слева: цветной список, по одной линии в строке. */
+.pano-legend { flex-direction: column; align-items: flex-start; gap: 5px; }
+.pano-legend-doc { font-size: 12px; opacity: 0.85; margin-left: 2px; }
+
+/* Панель правки с развёрнутой документацией линии бывает высокой — не закрываем панораму целиком. */
+.pano-edit { max-height: 62%; overflow-y: auto; }

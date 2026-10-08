@@ -15,6 +15,11 @@ interface BackupHotspot extends Omit<Hotspot, "photo" | "pdfs"> {
   pdfRefs?: { name: string; ref?: string; href?: string }[]; // вложения заметки (любые файлы): имя + путь в архиве (старые копии — hotspotPdfs/…, читаются по ref)
   photoRef?: string; // путь внутри архива, если у заметки есть фото
 }
+// Линия с документацией: фото/файлы лежат в архиве отдельными файлами.
+interface BackupLine extends Omit<LineDef, "photo" | "pdfs"> {
+  photoRef?: string;
+  pdfRefs?: { name: string; ref?: string; href?: string }[];
+}
 interface BackupScene {
   id: string;
   title: string;
@@ -33,7 +38,7 @@ interface BackupManifest {
   version: number;
   title: string;
   scenes: BackupScene[];
-  lines?: LineDef[]; // функция «Линии»
+  lines?: BackupLine[]; // функция «Линии»
   hasMapImage?: boolean; // план объекта, если был — файл map.jpg в архиве
 }
 
@@ -84,12 +89,34 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
 
   if (project.mapImage) files["map.jpg"] = new Uint8Array(await project.mapImage.arrayBuffer());
 
+  const backupLines: BackupLine[] = [];
+  for (const l of project.lines ?? []) {
+    const { photo, pdfs, ...rest } = l;
+    let photoRef: string | undefined;
+    if (photo) {
+      photoRef = `lineFiles/${l.id}-photo`;
+      files[photoRef] = new Uint8Array(await photo.arrayBuffer());
+    }
+    const pdfRefs: { name: string; ref?: string; href?: string }[] = [];
+    for (const [i, p] of (pdfs ?? []).entries()) {
+      if (p.href) {
+        pdfRefs.push({ name: p.name, href: p.href });
+        continue;
+      }
+      if (!p.data) continue;
+      const ref = `lineFiles/${l.id}-${i}`;
+      files[ref] = new Uint8Array(await p.data.arrayBuffer());
+      pdfRefs.push({ name: p.name, ref });
+    }
+    backupLines.push({ ...rest, photoRef, pdfRefs: pdfRefs.length ? pdfRefs : undefined });
+  }
+
   const manifest: BackupManifest = {
     version: BACKUP_VERSION,
     title: project.title,
     scenes: backupScenes,
     hasMapImage: !!project.mapImage,
-    lines: project.lines?.length ? project.lines : undefined,
+    lines: backupLines.length ? backupLines : undefined,
   };
   files["backup.json"] = new TextEncoder().encode(JSON.stringify(manifest));
 
@@ -123,7 +150,23 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
   const project = await createProject(title);
   const idMap = new Map(manifest.scenes.map((s) => [s.id, uid()]));
 
-  if (manifest.lines?.length) await db.projects.update(project.id, { lines: manifest.lines });
+  if (manifest.lines?.length) {
+    const restored: LineDef[] = manifest.lines.map((l) => {
+      const { photoRef, pdfRefs, ...rest } = l;
+      const photoBytes = photoRef ? files[photoRef] : undefined;
+      const pdfs = (pdfRefs ?? []).flatMap((p): NotePdf[] => {
+        if (p.href) return [{ name: p.name, href: p.href }];
+        const bytes = p.ref ? files[p.ref] : undefined;
+        return bytes ? [{ name: p.name, data: new Blob([new Uint8Array(bytes)], { type: mimeForName(p.name) }) }] : [];
+      });
+      return {
+        ...rest,
+        photo: photoBytes ? new Blob([new Uint8Array(photoBytes)], { type: "image/jpeg" }) : undefined,
+        pdfs: pdfs.length ? pdfs : undefined,
+      };
+    });
+    await db.projects.update(project.id, { lines: restored });
+  }
   if (manifest.hasMapImage) {
     const mapBytes = files["map.jpg"];
     if (mapBytes) await db.projects.update(project.id, { mapImage: new Blob([new Uint8Array(mapBytes)], { type: "image/jpeg" }) });

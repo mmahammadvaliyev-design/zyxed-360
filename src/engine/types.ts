@@ -36,6 +36,17 @@ export interface LineDef {
   id: string;
   name: string;
   color: string; // #rrggbb
+  // «Невидимая» линия: на панораме не рисуется, но зона остаётся кликабельной
+  // (и перечислена в легенде) — клик по трубе открывает документацию.
+  hidden?: boolean;
+  // Документация линии — то же содержимое, что у заметки: текст, фото,
+  // вложения (PDF/DWG/3D-модели) и ссылки. Клик по любому штриху линии на
+  // любой панораме открывает карточку с этим содержимым. photo — Blob в БД,
+  // photoUrl — data: URI в манифесте экспорта (как у Hotspot).
+  note?: string;
+  photo?: Blob;
+  photoUrl?: string;
+  pdfs?: NotePdf[];
 }
 export interface LinePoint {
   yaw: number; // радианы
