@@ -38,6 +38,68 @@ function widthPx(widthDeg: number, scale: number): number {
   return clamp(rad(widthDeg) * scale, MIN_WIDTH_PX, MAX_WIDTH_PX);
 }
 
+// Сужение к концу: во сколько раз конец штриха тоньше начала.
+export const TAPER_END = 0.3;
+// Ширина в i-й из n точек штриха (в пикселях).
+function widthAt(i: number, n: number, w: number, taper: boolean): number {
+  if (!taper || n < 2) return w;
+  return Math.max(MIN_WIDTH_PX, w * (1 - (1 - TAPER_END) * (i / (n - 1))));
+}
+
+// Лента переменной ширины: один заливочный проход (поэтому полупрозрачность
+// не «перекрашивается» в местах стыков), с круглыми концами.
+function fillRibbon(ctx: CanvasRenderingContext2D, pts: ({ x: number; y: number } | null)[], widths: number[], color: string, alpha: number) {
+  ctx.fillStyle = color;
+  ctx.globalAlpha = alpha;
+  let run: { x: number; y: number; w: number }[] = [];
+  const flush = () => {
+    if (run.length) drawRun(run);
+    run = [];
+  };
+  const drawRun = (r: { x: number; y: number; w: number }[]) => {
+    ctx.beginPath();
+    if (r.length >= 2) {
+      const left: { x: number; y: number }[] = [];
+      const right: { x: number; y: number }[] = [];
+      for (let i = 0; i < r.length; i++) {
+        const a = r[Math.max(0, i - 1)];
+        const b = r[Math.min(r.length - 1, i + 1)];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+        left.push({ x: r[i].x + (nx * r[i].w) / 2, y: r[i].y + (ny * r[i].w) / 2 });
+        right.push({ x: r[i].x - (nx * r[i].w) / 2, y: r[i].y - (ny * r[i].w) / 2 });
+      }
+      const poly = [...left, ...right.reverse()];
+      let area = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const p = poly[i];
+        const q = poly[(i + 1) % poly.length];
+        area += p.x * q.y - q.x * p.y;
+      }
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+      ctx.closePath();
+      // Круглые концы — в том же пути и с той же ориентацией, чтобы заливка
+      // nonzero не вырезала дырки на стыках.
+      for (const e of [r[0], r[r.length - 1]]) {
+        ctx.moveTo(e.x + e.w / 2, e.y);
+        ctx.arc(e.x, e.y, e.w / 2, 0, Math.PI * 2, area < 0);
+      }
+    } else {
+      ctx.arc(r[0].x, r[0].y, r[0].w / 2, 0, Math.PI * 2);
+    }
+    ctx.fill("nonzero");
+  };
+  pts.forEach((p, i) => {
+    if (!p) flush();
+    else run.push({ x: p.x, y: p.y, w: widths[i] });
+  });
+  flush();
+}
+
 function dot(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -104,6 +166,7 @@ export interface DraftStroke {
   vertices: boolean; // показывать вершины (режим «по точкам»)
   smooth?: boolean;
   widthDeg?: number;
+  taper?: boolean;
 }
 
 // Плавная кривая ЧЕРЕЗ заданные точки (центрипетальный Catmull–Rom: проходит
@@ -159,7 +222,14 @@ export function drawStrokes(
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  const paint = (pts: ({ x: number; y: number } | null)[], color: string, strength: number, w: number) => {
+  const paint = (pts: ({ x: number; y: number } | null)[], color: string, strength: number, w: number, taper = false) => {
+    if (taper) {
+      const n = pts.length;
+      const glow = pts.map((_, i) => widthAt(i, n, w, true) + clamp(widthAt(i, n, w, true) * 0.45, 6, 22));
+      fillRibbon(ctx, pts, glow, color, 0.16 * strength); // мягкое свечение
+      fillRibbon(ctx, pts, pts.map((_, i) => widthAt(i, n, w, true)), color, 0.62 * strength);
+      return;
+    }
     tracePath(ctx, pts);
     ctx.strokeStyle = color;
     ctx.lineWidth = w + clamp(w * 0.45, 6, 22); // мягкое свечение
@@ -177,12 +247,12 @@ export function drawStrokes(
     const hiddenNow = !!def.hidden && focus !== def.id;
     if (hiddenNow && !ghostHidden) continue;
     const strength = hiddenNow ? 0.28 : focus && focus !== s.lineId ? 0.22 : 1;
-    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength, widthPx(lineWidthDeg(def), scale));
+    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength, widthPx(lineWidthDeg(def), scale), !!def.taper);
   }
 
   if (draft && draft.points.length) {
     const pts = samplePath(draft.smooth ? smoothCurve(draft.points) : draft.points, basis, width, height);
-    if (draft.points.length > 1) paint(pts, draft.color, 1, widthPx(draft.widthDeg ?? DEFAULT_LINE_WIDTH_DEG, scale));
+    if (draft.points.length > 1) paint(pts, draft.color, 1, widthPx(draft.widthDeg ?? DEFAULT_LINE_WIDTH_DEG, scale), !!draft.taper);
     if (draft.vertices) {
       ctx.globalAlpha = 1;
       for (const p of draft.points) {
@@ -269,10 +339,12 @@ export function hitTestStrokes(
   for (const s of strokes) {
     const def = lines.find((l) => l.id === s.lineId);
     if (!def || s.points.length < 2) continue;
-    // Зона = вся полоса линии (половина ширины в каждую сторону) + запас под палец.
-    const tol = widthPx(lineWidthDeg(def), scale) / 2 + TOUCH_SLOP_PX;
+    // Зона = вся полоса линии (половина ширины в каждую сторону, с учётом
+    // сужения к концу) + запас под палец.
+    const w0 = widthPx(lineWidthDeg(def), scale);
     const pts = samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height);
     for (let i = 0; i < pts.length - 1; i++) {
+      const tol = widthAt(i, pts.length, w0, !!def.taper) / 2 + TOUCH_SLOP_PX;
       const a = pts[i];
       const b = pts[i + 1];
       if (!a || !b) continue;

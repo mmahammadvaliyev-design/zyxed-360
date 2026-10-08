@@ -292,11 +292,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      if (!linesEnabledRef.current || !linesVisibleRef.current) return;
-      const strokes = scenesRef.current.find((s) => s.id === currentIdRef.current)?.strokes ?? [];
+      if (!linesEnabledRef.current) return;
+      // Скрытый режим (кнопка 〰): рисунок линий не показываем, кроме линии,
+      // выбранной в легенде, — иначе подсветка из легенды ничего бы не давала.
+      if (!linesVisibleRef.current && !focusLineIdRef.current && !draftRef.current.length) return;
+      let strokes = scenesRef.current.find((s) => s.id === currentIdRef.current)?.strokes ?? [];
+      if (!linesVisibleRef.current) strokes = strokes.filter((st) => st.lineId === focusLineIdRef.current);
       const active = linesRef.current.find((l) => l.id === activeLineIdRef.current);
       const draft = draftRef.current.length && active
-        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current, widthDeg: lineWidthDeg(active) }
+        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current, widthDeg: lineWidthDeg(active), taper: !!active.taper }
         : null;
       drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current);
     };
@@ -511,7 +515,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (!target?.closest("[data-hud]") && !placing && !lineModeRef.current) {
       const hitId = lineAt(clientX, clientY);
       if (hitId) {
-        openLineCard(hitId);
+        const def = linesRef.current.find((l) => l.id === hitId);
+        if (def && lineHasDocs(def)) openLineCard(hitId);
+        else if (def) { setNoteHotspot(null); flash(def.name); } // документации нет — закрываем старую карточку и называем линию
         if (editRef.current) setActiveLineId(hitId);
         return;
       }
@@ -767,13 +773,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }
   // Линия под точкой касания (только линии, у которых есть документация).
   function lineAt(clientX: number, clientY: number): string | null {
-    if (!linesEnabledRef.current || !linesVisibleRef.current || !scene?.strokes?.length) return null;
+    // Зоны кликабельны всегда — и у «невидимых» линий, и когда линии скрыты
+    // кнопкой 〰 в тулбаре (она прячет только рисунок и легенду).
+    if (!linesEnabledRef.current || !scene?.strokes?.length || !linesRef.current.length) return null;
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return null;
-    const docs = linesRef.current.filter(lineHasDocs);
-    if (!docs.length) return null;
     const basis = basisFor(viewRef.current, rect.width, rect.height);
-    return hitTestStrokes(scene.strokes, docs, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
+    return hitTestStrokes(scene.strokes, linesRef.current, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
   }
   async function pickLinePhoto(id: string, file: File | undefined) {
     if (!file) return;
@@ -791,6 +797,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   function removeLinePdf(id: string, index: number) {
     const next = (lines.find((l) => l.id === id)?.pdfs ?? []).filter((_, i) => i !== index);
     updateLine(id, { pdfs: next.length ? next : undefined });
+  }
+
+  // Разворот направления штрихов линии на этой панораме: «начало» (широкий
+  // конец при сужении) меняется местами с концом.
+  function reverseLineHere(id: string) {
+    if (!scene || !onChange) return;
+    onChange({ ...scene, strokes: (scene.strokes ?? []).map((st) => (st.lineId === id ? { ...st, points: [...st.points].reverse() } : st)) });
   }
 
   function renameLine(id: string) {
@@ -1000,7 +1013,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             <button className={`pano-btn${slideshow ? " on" : ""}`} onClick={() => setSlideshow(!slideshow)} title={t("Автотур (слайд-шоу)", "Auto tour (slideshow)")}>▶</button>
           )}
           {linesEnabled && lines.length > 0 && (
-            <button className={`pano-btn${linesVisible ? " on" : ""}`} onClick={() => { setLinesVisible(!linesVisible); if (linesVisible) setNoteHotspot((h) => (h?.id.startsWith("line:") ? null : h)); }} title={linesVisible ? t("Скрыть линии", "Hide lines") : t("Показать линии", "Show lines")}>〰</button>
+            <button className={`pano-btn${linesVisible ? " on" : ""}`} onClick={() => setLinesVisible(!linesVisible)} title={linesVisible ? t("Скрыть линии (зоны остаются кликабельными)", "Hide lines (their zones stay clickable)") : t("Показать линии", "Show lines")}>〰</button>
           )}
           <button className={`pano-btn${autorotate ? " on" : ""}`} onClick={() => { setAutorotate(!autorotate); setGyro(false); }} title={t("Автоповорот", "Auto-rotate")}>↻</button>
           {GYRO_SUPPORTED && (
@@ -1016,7 +1029,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         </div>
       </div>
 
-      {linesEnabled && linesVisible && sceneLineIds.length > 0 && (
+      {linesEnabled && sceneLineIds.length > 0 && (
         <div className="pano-legend" data-hud onPointerDown={(e) => e.stopPropagation()}>
           {sceneLineIds.map((id) => {
             const def = lines.find((l) => l.id === id);
@@ -1191,6 +1204,20 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                         onChange={(e) => updateLine(activeLine.id, { width: Number(e.target.value) })}
                       />
                     </label>
+                  )}
+                  {activeLine && (
+                    <div className="row" style={{ gap: 6 }}>
+                      <button
+                        className={`pano-btn wide${activeLine.taper ? " on" : ""}`}
+                        onClick={() => updateLine(activeLine.id, { taper: !activeLine.taper })}
+                        title={t("Линия сужается от начала штриха к концу — для труб, уходящих вдаль", "The line narrows from the start of each stroke to its end — for pipes receding into the distance")}
+                      >
+                        🔻 {t("Сужение к концу", "Taper to the end")}
+                      </button>
+                      {activeLine.taper && (
+                        <button className="pano-btn" onClick={() => reverseLineHere(activeLine.id)} title={t("Развернуть направление штрихов этой линии на панораме (где начало — там шире)", "Reverse the direction of this line's strokes on the panorama (the start is the wide end)")}>⇄</button>
+                      )}
+                    </div>
                   )}
                   {activeLine && !lineMode && (
                     <>

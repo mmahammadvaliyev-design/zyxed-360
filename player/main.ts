@@ -154,13 +154,14 @@ function lineToHotspot(l: LineDef): Hotspot {
 // Линия под точкой касания (только те, у которых есть документация).
 function lineAt(clientX: number, clientY: number): LineDef | null {
   const scene = currentScene();
-  if (!manifest?.features?.lines || !linesVisible || !scene?.strokes?.length) return null;
-  const docs = (manifest.lines ?? []).filter(lineHasDocs);
-  if (!docs.length) return null;
+  // Зоны кликабельны всегда: и у «невидимых» линий, и когда линии скрыты
+  // кнопкой 〰 (она прячет только рисунок и легенду).
+  const all = manifest?.lines ?? [];
+  if (!manifest?.features?.lines || !scene?.strokes?.length || !all.length) return null;
   const rect = wrapEl.getBoundingClientRect();
   const basis = basisFor(view, rect.width, rect.height);
-  const id = hitTestStrokes(scene.strokes, docs, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
-  return docs.find((l) => l.id === id) ?? null;
+  const id = hitTestStrokes(scene.strokes, all, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
+  return all.find((l) => l.id === id) ?? null;
 }
 
 function renderLegend() {
@@ -168,7 +169,7 @@ function renderLegend() {
   const lines = manifest.lines ?? [];
   const strokes = currentScene()?.strokes ?? [];
   const present = lines.filter((l) => strokes.some((st) => st.lineId === l.id));
-  legendEl.hidden = !manifest.features?.lines || !linesVisible || present.length === 0;
+  legendEl.hidden = !manifest.features?.lines || present.length === 0;
   for (const l of present) {
     const chip = document.createElement("button");
     chip.className = "pano-legend-chip" + (focusLineId === l.id ? " on" : "");
@@ -596,7 +597,8 @@ function handleTap(target: HTMLElement | null, clientX: number, clientY: number)
   if (!target?.closest("[data-hud]")) {
     const line = lineAt(clientX, clientY);
     if (line) {
-      openNote(lineToHotspot(line));
+      if (lineHasDocs(line)) openNote(lineToHotspot(line));
+      else { closeNote(); flash(line.name); } // документации нет — закрываем старую карточку и называем линию
       return;
     }
   }
@@ -630,8 +632,7 @@ window.addEventListener("keyup", (e) => keys.delete(e.key));
 btnLines.addEventListener("click", () => {
   linesVisible = !linesVisible;
   btnLines.classList.toggle("on", linesVisible);
-  btnLines.title = linesVisible ? "Скрыть линии" : "Показать линии";
-  if (!linesVisible) closeNote();
+  btnLines.title = linesVisible ? "Скрыть линии (зоны остаются кликабельными)" : "Показать линии";
   renderLegend();
 });
 
@@ -782,8 +783,11 @@ function drawLinesLayer(basis: Basis, width: number, height: number, scene: Scen
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  if (!manifest?.features?.lines || !linesVisible || !scene?.strokes?.length) return;
-  drawStrokes(ctx, width, height, basis, scene.strokes, manifest.lines ?? [], focusLineId);
+  if (!manifest?.features?.lines || !scene?.strokes?.length) return;
+  // Скрытый режим (кнопка 〰): рисунок не показываем, кроме линии, выбранной в легенде.
+  const strokes = linesVisible ? scene.strokes : scene.strokes.filter((st) => st.lineId === focusLineId);
+  if (!strokes.length) return;
+  drawStrokes(ctx, width, height, basis, strokes, manifest.lines ?? [], focusLineId);
 }
 
 // ── Старт: подгружаем данные тура ─────────────────────────────────
