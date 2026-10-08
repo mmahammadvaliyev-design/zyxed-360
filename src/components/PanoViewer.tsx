@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uid, type Hotspot, type Scene } from "../db";
 import type { LineDef, LinePoint, NotePdf, Stroke } from "../engine/types";
-import { angularDistance, drawStrokes, hitTestStrokes, lineHasDocs, nextLineColor, smoothAndSimplify } from "../engine/lines";
+import { angularDistance, drawStrokes, hitTestStrokes, lineHasDocs, lineWidthDeg, MAX_LINE_WIDTH_DEG, MIN_LINE_WIDTH_DEG, nextLineColor, smoothAndSimplify } from "../engine/lines";
 import {
   basisFor,
   clamp,
@@ -59,6 +59,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
   const [linesVisible, setLinesVisible] = useState(true); // быстрый показ/скрытие всех линий в просмотре
+  const [adjustingWidth, setAdjustingWidth] = useState(false); // тянут ползунок толщины — панель бледнеет, чтобы видеть зону
   const [lineDocOpen, setLineDocOpen] = useState(false); // раскрыт редактор документации линии
   const [smoothPoints, setSmoothPoints] = useState(true); // «по точкам» → плавная кривая
   const smoothRef = useRef(true);
@@ -295,7 +296,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       const strokes = scenesRef.current.find((s) => s.id === currentIdRef.current)?.strokes ?? [];
       const active = linesRef.current.find((l) => l.id === activeLineIdRef.current);
       const draft = draftRef.current.length && active
-        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current }
+        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current, widthDeg: lineWidthDeg(active) }
         : null;
       drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current);
     };
@@ -1043,7 +1044,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       )}
 
       {edit && editable && (
-        <div className="pano-edit" data-hud onPointerDown={(e) => e.stopPropagation()}>
+        <div className={`pano-edit${adjustingWidth ? " dim" : ""}`} data-hud onPointerDown={(e) => e.stopPropagation()}>
           {selected ? (
             <>
               <div className="row" style={{ gap: 6 }}>
@@ -1173,6 +1174,24 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                       </>
                     )}
                   </div>
+                  {activeLine && (
+                    <label className="pano-width-row">
+                      <span>{t("Толщина и зона клика", "Thickness & tap area")}: <b>{lineWidthDeg(activeLine).toFixed(1)}°</b></span>
+                      <input
+                        type="range"
+                        className="pano-range"
+                        min={MIN_LINE_WIDTH_DEG}
+                        max={MAX_LINE_WIDTH_DEG}
+                        step={0.1}
+                        value={lineWidthDeg(activeLine)}
+                        onPointerDown={() => setAdjustingWidth(true)}
+                        onPointerUp={() => setAdjustingWidth(false)}
+                        onPointerCancel={() => setAdjustingWidth(false)}
+                        onBlur={() => setAdjustingWidth(false)}
+                        onChange={(e) => updateLine(activeLine.id, { width: Number(e.target.value) })}
+                      />
+                    </label>
+                  )}
                   {activeLine && !lineMode && (
                     <>
                       <button className={`pano-btn wide${lineDocOpen ? " on" : ""}`} onClick={() => setLineDocOpen(!lineDocOpen)}>

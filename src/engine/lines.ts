@@ -21,9 +21,22 @@ export function nextLineColor(lines: LineDef[]): string {
 }
 
 const SEGMENT_STEP = rad(1.5); // шаг дробления отрезка по дуге большого круга
-const WIDTH_RAD = rad(0.9); // толщина маркера в угловой мере — «прилипает» к трубе при зуме
+// Толщина линии задаётся в угловой мере (градусы обзора) — тогда она
+// «прилипает» к трубе при зуме. Это и ширина маркера, и ширина кликабельной
+// зоны: широкая линия накрывает трубу большого диаметра целиком.
+export const DEFAULT_LINE_WIDTH_DEG = 2.5;
+export const MIN_LINE_WIDTH_DEG = 0.4;
+export const MAX_LINE_WIDTH_DEG = 14;
 const MIN_WIDTH_PX = 4;
-const MAX_WIDTH_PX = 36;
+const MAX_WIDTH_PX = 320;
+const TOUCH_SLOP_PX = 10; // запас на неточность пальца вокруг зоны
+
+export function lineWidthDeg(l: Pick<LineDef, "width">): number {
+  return clamp(l.width ?? DEFAULT_LINE_WIDTH_DEG, MIN_LINE_WIDTH_DEG, MAX_LINE_WIDTH_DEG);
+}
+function widthPx(widthDeg: number, scale: number): number {
+  return clamp(rad(widthDeg) * scale, MIN_WIDTH_PX, MAX_WIDTH_PX);
+}
 
 function dot(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -90,6 +103,7 @@ export interface DraftStroke {
   color: string;
   vertices: boolean; // показывать вершины (режим «по точкам»)
   smooth?: boolean;
+  widthDeg?: number;
 }
 
 // Плавная кривая ЧЕРЕЗ заданные точки (центрипетальный Catmull–Rom: проходит
@@ -141,15 +155,14 @@ export function drawStrokes(
   ghostHidden = false, // в режиме правки «невидимые» линии рисуем бледно, чтобы автор видел зоны
 ): void {
   const scale = height / (2 * basis.tanHalf);
-  const w = clamp(WIDTH_RAD * scale, MIN_WIDTH_PX, MAX_WIDTH_PX);
   const focus = focusId && strokes.some((s) => s.lineId === focusId) ? focusId : null;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  const paint = (pts: ({ x: number; y: number } | null)[], color: string, strength: number) => {
+  const paint = (pts: ({ x: number; y: number } | null)[], color: string, strength: number, w: number) => {
     tracePath(ctx, pts);
     ctx.strokeStyle = color;
-    ctx.lineWidth = w * 2.4; // мягкое свечение
+    ctx.lineWidth = w + clamp(w * 0.45, 6, 22); // мягкое свечение
     ctx.globalAlpha = 0.16 * strength;
     ctx.stroke();
     ctx.lineWidth = w;
@@ -164,12 +177,12 @@ export function drawStrokes(
     const hiddenNow = !!def.hidden && focus !== def.id;
     if (hiddenNow && !ghostHidden) continue;
     const strength = hiddenNow ? 0.28 : focus && focus !== s.lineId ? 0.22 : 1;
-    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength);
+    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength, widthPx(lineWidthDeg(def), scale));
   }
 
   if (draft && draft.points.length) {
     const pts = samplePath(draft.smooth ? smoothCurve(draft.points) : draft.points, basis, width, height);
-    if (draft.points.length > 1) paint(pts, draft.color, 1);
+    if (draft.points.length > 1) paint(pts, draft.color, 1, widthPx(draft.widthDeg ?? DEFAULT_LINE_WIDTH_DEG, scale));
     if (draft.vertices) {
       ctx.globalAlpha = 1;
       for (const p of draft.points) {
@@ -252,10 +265,12 @@ export function hitTestStrokes(
   y: number,
 ): string | null {
   const scale = height / (2 * basis.tanHalf);
-  const tol = Math.max(18, clamp(WIDTH_RAD * scale, MIN_WIDTH_PX, MAX_WIDTH_PX));
   let best: { id: string; d: number } | null = null;
   for (const s of strokes) {
-    if (!lines.some((l) => l.id === s.lineId) || s.points.length < 2) continue;
+    const def = lines.find((l) => l.id === s.lineId);
+    if (!def || s.points.length < 2) continue;
+    // Зона = вся полоса линии (половина ширины в каждую сторону) + запас под палец.
+    const tol = widthPx(lineWidthDeg(def), scale) / 2 + TOUCH_SLOP_PX;
     const pts = samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height);
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i];

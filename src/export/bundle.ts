@@ -126,6 +126,7 @@ async function exportLines(lines: LineDef[]): Promise<LineDef[]> {
       name: l.name,
       color: l.color,
       hidden: l.hidden || undefined,
+      width: l.width,
       note: l.note || undefined,
       photoUrl: l.photo ? await blobToDataUrl(l.photo) : undefined,
       pdfs: l.pdfs?.length
