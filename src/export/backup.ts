@@ -4,7 +4,7 @@
 // продолжить работу над туром на другом устройстве или в другом браузере,
 // а не только посмотреть уже опубликованный результат.
 import { mimeForName } from "../engine/files";
-import type { NotePdf } from "../engine/types";
+import type { LineDef, NotePdf, Stroke } from "../engine/types";
 import { unzipSync, zipSync } from "fflate";
 import { createProject, db, uid, uniqueProjectTitle, type Hotspot, type Project } from "../db";
 import { slugify } from "./bundle";
@@ -26,12 +26,14 @@ interface BackupScene {
   fov: number;
   hotspots: BackupHotspot[];
   mapX?: number;
+  strokes?: Stroke[];
   mapY?: number;
 }
 interface BackupManifest {
   version: number;
   title: string;
   scenes: BackupScene[];
+  lines?: LineDef[]; // функция «Линии»
   hasMapImage?: boolean; // план объекта, если был — файл map.jpg в архиве
 }
 
@@ -76,6 +78,7 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
       hotspots,
       mapX: s.mapX,
       mapY: s.mapY,
+      strokes: s.strokes?.length ? s.strokes : undefined,
     });
   }
 
@@ -86,6 +89,7 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
     title: project.title,
     scenes: backupScenes,
     hasMapImage: !!project.mapImage,
+    lines: project.lines?.length ? project.lines : undefined,
   };
   files["backup.json"] = new TextEncoder().encode(JSON.stringify(manifest));
 
@@ -119,6 +123,7 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
   const project = await createProject(title);
   const idMap = new Map(manifest.scenes.map((s) => [s.id, uid()]));
 
+  if (manifest.lines?.length) await db.projects.update(project.id, { lines: manifest.lines });
   if (manifest.hasMapImage) {
     const mapBytes = files["map.jpg"];
     if (mapBytes) await db.projects.update(project.id, { mapImage: new Blob([new Uint8Array(mapBytes)], { type: "image/jpeg" }) });
@@ -159,6 +164,7 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
       hotspots,
       mapX: s.mapX,
       mapY: s.mapY,
+      strokes: s.strokes?.length ? s.strokes.map((st) => ({ ...st, id: uid() })) : undefined,
     });
   }
   return project;

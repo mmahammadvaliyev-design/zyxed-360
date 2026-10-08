@@ -106,6 +106,16 @@ export const FEATURES: FeatureFlag[] = [
       "Upload a site plan (any image) in the editor and manually place shooting points on it (pick a panorama in the list → tap a spot on the plan). A map thumbnail is always visible both in the app and in the published tour — \"⤢\" expands the plan, clicking a point jumps to that panorama.",
     defaultOn: true,
   },
+  {
+    id: "lines",
+    label: "Линии (хайлайтер)",
+    labelEn: "Lines (highlighter)",
+    description:
+      "Отмечайте трассу трубопровода/кабеля прямо на панорамах цветным маркером: создаёте линию (например, A1), рисуете её на каждой панораме — по точкам или от руки. В туре — легенда: нажали на линию, и она подсвечивается на всех панорамах, где проходит.",
+    descriptionEn:
+      "Mark a pipeline/cable route right on the panoramas with a coloured highlighter: create a line (e.g. A1) and draw it on each panorama — point by point or freehand. The tour has a legend: tap a line and it's highlighted on every panorama it passes through.",
+    defaultOn: true,
+  },
 ];
 
 const STORAGE_KEY = "zyxed360:features";

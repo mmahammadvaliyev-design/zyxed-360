@@ -379,3 +379,27 @@
   position: absolute; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
   text-align: center; padding: 0 16px; color: rgba(255, 255, 255, 0.5); font-size: 12px; pointer-events: none;
 }
+
+/* Функция «Линии» (хайлайтер): штрихи рисуются на отдельном 2D-канвасе поверх
+   WebGL-панорамы, под точками переходов и кнопками. */
+.pano-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: block; }
+.pano-legend {
+  position: absolute; left: 12px; top: calc(62px + env(safe-area-inset-top));
+  display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 24px); z-index: 6;
+}
+.pano-legend-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px 0 10px;
+  border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(8, 14, 24, 0.66); color: #fff; font: 600 13px/1 system-ui, sans-serif;
+  backdrop-filter: blur(6px); cursor: pointer;
+}
+.pano-legend-chip.on { background: #fff; color: #0a1420; border-color: #fff; }
+.pano-legend-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55); flex-shrink: 0; }
+.pano-color { width: 40px; height: 36px; padding: 2px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(8, 14, 24, 0.66); cursor: pointer; flex-shrink: 0; }
+.pano-hint-line { font-size: 12px; line-height: 1.4; color: rgba(255, 255, 255, 0.75); }
+.pano-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Верхняя полоса пропускает нажатия мимо своих кнопок (иначе нельзя ставить
+   точки линий/заметок у самого верха кадра); кнопки и заголовок ловят нажатия сами. */
+.pano-top { pointer-events: none; }
+.pano-top > * { pointer-events: auto; }

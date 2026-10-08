@@ -8,6 +8,7 @@ import { downloadBlob, exportProjectZip, slugify } from "../export/bundle";
 import { exportProjectBackup } from "../export/backup";
 import { renderQrToCanvas } from "../qr";
 import PanoViewer from "../components/PanoViewer";
+import type { LineDef } from "../engine/types";
 import MapEditor from "../components/MapEditor";
 import { useEffect } from "react";
 import { useFeature } from "../features";
@@ -338,6 +339,11 @@ export default function Editor() {
     await touch();
   }
 
+  // Функция «Линии»: список линий тура (название+цвет) — в самом проекте.
+  async function updateLines(lines: LineDef[]) {
+    await db.projects.update(projectId, { lines, updatedAt: new Date().toISOString() });
+  }
+
   // Функция «Карта тура»: план — одна картинка на весь проект (как логотип
   // брендинга, но здесь Blob в самом проекте, не data: URI в localStorage —
   // план обычно крупнее и относится к конкретному туру).
@@ -580,7 +586,7 @@ export default function Editor() {
       )}
 
       {openScene && (
-        <PanoViewer scenes={list} startId={openScene.id} editable onClose={() => setOpenId(null)} onChange={saveScene} mapImage={project.mapImage} />
+        <PanoViewer scenes={list} startId={openScene.id} editable onClose={() => setOpenId(null)} onChange={saveScene} mapImage={project.mapImage} lines={project.lines} onLinesChange={updateLines} />
       )}
     </div>
   );

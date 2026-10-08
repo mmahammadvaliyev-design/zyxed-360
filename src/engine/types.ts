@@ -30,9 +30,30 @@ export interface Hotspot {
   pdfs?: NotePdf[];
 }
 
+// Функция «Линии» (хайлайтер, см. engine/lines.ts). Линия — объект всего
+// тура; штрихи лежат на панорамах.
+export interface LineDef {
+  id: string;
+  name: string;
+  color: string; // #rrggbb
+}
+export interface LinePoint {
+  yaw: number; // радианы
+  pitch: number;
+}
+export interface Stroke {
+  id: string;
+  lineId: string;
+  points: LinePoint[];
+  // Штрих «по точкам»: рисовать плавной кривой через вершины (а не ломаной).
+  smooth?: boolean;
+}
+
 export interface SceneMeta {
   id: string;
   title: string;
+  // Функция «Линии»: штрихи линий на этой панораме.
+  strokes?: Stroke[];
   width: number;
   height: number;
   order: number;
@@ -70,4 +91,6 @@ export interface TourManifest {
   // присутствует, только если функция была включена при экспорте и план
   // загружен. Положения точек — в scenes[].mapX/mapY.
   mapImage?: string;
+  // Функция «Линии»: список линий тура (штрихи — в scenes[].strokes).
+  lines?: LineDef[];
 }

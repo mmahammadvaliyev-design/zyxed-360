@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uid, type Hotspot, type Scene } from "../db";
-import type { NotePdf } from "../engine/types";
+import type { LineDef, LinePoint, NotePdf, Stroke } from "../engine/types";
+import { angularDistance, drawStrokes, nextLineColor, smoothAndSimplify } from "../engine/lines";
 import {
   basisFor,
   clamp,
@@ -31,13 +32,17 @@ interface Props {
   onClose: () => void;
   onChange?: (scene: Scene) => void; // сохранить изменённую сцену (нужен, если editable)
   mapImage?: Blob; // Функция «Карта тура»: план объекта, один на весь проект
+  lines?: LineDef[]; // Функция «Линии»: линии тура (название+цвет)
+  onLinesChange?: (lines: LineDef[]) => void;
 }
+
+const NO_LINES: LineDef[] = [];
 
 const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
 const TAP_SLOP = 8;
 
-export default function PanoViewer({ scenes, startId, editable, onClose, onChange, mapImage }: Props) {
+export default function PanoViewer({ scenes, startId, editable, onClose, onChange, mapImage, lines = NO_LINES, onLinesChange }: Props) {
   const t = useT();
   const [currentId, setCurrentId] = useState(startId);
   const [loading, setLoading] = useState(true);
@@ -45,6 +50,20 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [edit, setEdit] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [placing, setPlacing] = useState<"new" | "new-note" | string | null>(null);
+  // Функция «Линии»: режим рисования ("points" — по точкам, "free" — от руки),
+  // выбранная линия, подсвеченная в легенде линия. Черновик штриха живёт в
+  // реф (его читает рендер-цикл каждый кадр), draftCount — только для кнопок.
+  const linesEnabled = useFeature("lines");
+  const [lineMode, setLineMode] = useState<null | "points" | "free">(null);
+  const [activeLineId, setActiveLineId] = useState<string | null>(null);
+  const [focusLineId, setFocusLineId] = useState<string | null>(null);
+  const [draftCount, setDraftCount] = useState(0);
+  const [smoothPoints, setSmoothPoints] = useState(true); // «по точкам» → плавная кривая
+  const smoothRef = useRef(true);
+  smoothRef.current = smoothPoints;
+  const draftRef = useRef<LinePoint[]>([]);
+  const freeDrawRef = useRef<{ pointerId: number } | null>(null);
+  const linesCanvasRef = useRef<HTMLCanvasElement>(null);
   // Какую из прежних заметок подставить в следующую новую («» — пустую).
   const [noteTemplateKey, setNoteTemplateKey] = useState("");
   const [autorotate, setAutorotate] = useState(false);
@@ -103,6 +122,16 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   // не напрямую — тот же приём, что и с goToRef/scenesRef в этом файле.
   const mapOpenRef = useRef(mapOpen);
   mapOpenRef.current = mapOpen;
+  const lineModeRef = useRef(lineMode);
+  lineModeRef.current = lineMode;
+  const activeLineIdRef = useRef(activeLineId);
+  activeLineIdRef.current = activeLineId;
+  const focusLineIdRef = useRef(focusLineId);
+  focusLineIdRef.current = focusLineId;
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const linesEnabledRef = useRef(linesEnabled);
+  linesEnabledRef.current = linesEnabled;
   const noteHotspotRef = useRef(noteHotspot);
   noteHotspotRef.current = noteHotspot;
   const placingRef = useRef(placing);
@@ -120,6 +149,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (model3dRef.current) { setModel3d(null); return true; }
     if (mapOpenRef.current) { setMapOpen(false); return true; }
     if (noteHotspotRef.current) { setNoteHotspot(null); return true; }
+    if (lineModeRef.current) { exitLineMode(); return true; }
     if (placingRef.current) { setPlacing(null); return true; }
     if (selectedIdRef.current) { setSelectedId(null); return true; }
     return false;
@@ -149,6 +179,16 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setNotePhotoUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [noteHotspot]);
+
+  // Черновик штриха принадлежит одной панораме и режиму правки.
+  useEffect(() => {
+    draftRef.current = [];
+    freeDrawRef.current = null;
+    setDraftCount(0);
+  }, [currentId]);
+  useEffect(() => {
+    if (!edit) exitLineMode();
+  }, [edit]);
 
   // 3D-просмотрщик: код подключается при первом открытии модели; всё, что он
   // создал (WebGL-контекст, геометрию), освобождаем при закрытии.
@@ -230,6 +270,30 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       }
     };
 
+    // Функция «Линии»: штрихи рисуем на 2D-канвасе поверх WebGL-панорамы.
+    const drawLinesOverlay = (basis: Basis, width: number, height: number) => {
+      const lc = linesCanvasRef.current;
+      if (!lc) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const pw = Math.round(width * dpr);
+      const ph = Math.round(height * dpr);
+      if (lc.width !== pw || lc.height !== ph) {
+        lc.width = pw;
+        lc.height = ph;
+      }
+      const ctx = lc.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      if (!linesEnabledRef.current) return;
+      const strokes = scenesRef.current.find((s) => s.id === currentIdRef.current)?.strokes ?? [];
+      const active = linesRef.current.find((l) => l.id === activeLineIdRef.current);
+      const draft = draftRef.current.length && active
+        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current }
+        : null;
+      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft);
+    };
+
     let raf = 0;
     let last = performance.now();
     const frame = (now: number) => {
@@ -268,6 +332,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       const basis = basisFor(v, width, height);
       renderer.render(basis);
       layoutHotspots(basis, width, height);
+      drawLinesOverlay(basis, width, height);
     };
     raf = requestAnimationFrame(frame);
 
@@ -327,6 +392,18 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   // ── Ввод: свайп, щипок, колесо, клавиши ─────────────────────────
   const pointerDown = (e: React.PointerEvent) => {
+    // Режим «от руки»: палец/мышь рисуют штрих, а не вращают панораму
+    // (кнопки и точки — data-hud — работают как обычно).
+    if (lineModeRef.current === "free" && pointers.current.size === 0 && !(e.target as HTMLElement).closest("[data-hud]")) {
+      const p = anglesAt(e.clientX, e.clientY);
+      if (p) {
+        draftRef.current = [p];
+        setDraftCount(1);
+        freeDrawRef.current = { pointerId: e.pointerId };
+        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+      }
+      return;
+    }
     downTargetRef.current = e.target as HTMLElement;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -341,6 +418,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }
 
   const pointerMove = (e: React.PointerEvent) => {
+    if (freeDrawRef.current?.pointerId === e.pointerId) {
+      const p = anglesAt(e.clientX, e.clientY);
+      const last = draftRef.current[draftRef.current.length - 1];
+      if (p && (!last || angularDistance(last, p) > rad(0.25))) {
+        draftRef.current.push(p);
+        setDraftCount(draftRef.current.length);
+      }
+      return;
+    }
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const d = dragRef.current;
@@ -378,6 +464,14 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   };
 
   const pointerUp = (e: React.PointerEvent) => {
+    if (freeDrawRef.current?.pointerId === e.pointerId) {
+      freeDrawRef.current = null;
+      const stroke = smoothAndSimplify(draftRef.current);
+      draftRef.current = [];
+      setDraftCount(0);
+      commitStroke(stroke);
+      return;
+    }
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.delete(e.pointerId);
     const d = dragRef.current;
@@ -387,6 +481,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   };
 
   function handleTap(clientX: number, clientY: number, target: HTMLElement | null) {
+    // Режим «по точкам»: каждый тап по панораме — новая вершина ломаной.
+    if (lineModeRef.current === "points" && !target?.closest("[data-hud]")) {
+      const p = anglesAt(clientX, clientY);
+      if (p) {
+        draftRef.current = [...draftRef.current, p];
+        setDraftCount(draftRef.current.length);
+      }
+      return;
+    }
     const spot = target?.closest<HTMLElement>("[data-spot]");
     if (spot) {
       const h = scene?.hotspots.find((x) => x.id === spot.dataset.spot);
@@ -572,6 +675,84 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setPlacing(null);
   }
 
+  // ── Функция «Линии» ────────────────────────────────────────────
+  function anglesAt(clientX: number, clientY: number): LinePoint | null {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const basis = basisFor(viewRef.current, rect.width, rect.height);
+    return unproject(clientX - rect.left, clientY - rect.top, basis, rect.width, rect.height);
+  }
+  function exitLineMode() {
+    freeDrawRef.current = null;
+    draftRef.current = [];
+    setDraftCount(0);
+    setLineMode(null);
+  }
+  function commitStroke(points: LinePoint[], smooth = false) {
+    const lineId = activeLineIdRef.current;
+    if (!scene || !onChange || !lineId || points.length < 2) return;
+    const stroke: Stroke = { id: uid(), lineId, points, ...(smooth && points.length > 2 ? { smooth: true } : {}) };
+    onChange({ ...scene, strokes: [...(scene.strokes ?? []), stroke] });
+  }
+  function finishPointStroke() {
+    commitStroke(draftRef.current, smoothRef.current);
+    draftRef.current = [];
+    setDraftCount(0);
+  }
+  function createLine(): LineDef | null {
+    if (!onLinesChange) return null;
+    const name = window.prompt(t("Название линии (например, A1):", "Line name (e.g. A1):"), `A${lines.length + 1}`)?.trim();
+    if (!name) return null;
+    const line: LineDef = { id: uid(), name, color: nextLineColor(lines) };
+    onLinesChange([...lines, line]);
+    setActiveLineId(line.id);
+    activeLineIdRef.current = line.id;
+    return line;
+  }
+  function startLineMode(mode: "points" | "free") {
+    if (lineMode === mode) { exitLineMode(); return; }
+    let id = activeLineIdRef.current;
+    if (!id || !lines.some((l) => l.id === id)) {
+      const created = lines.length === 1 ? lines[0] : createLine();
+      if (!created) return;
+      id = created.id;
+      setActiveLineId(id);
+      activeLineIdRef.current = id;
+    }
+    draftRef.current = [];
+    setDraftCount(0);
+    setSelectedId(null);
+    setPlacing(null);
+    setLineMode(mode);
+  }
+  function undoStroke() {
+    if (!scene || !onChange || !scene.strokes?.length) return;
+    onChange({ ...scene, strokes: scene.strokes.slice(0, -1) });
+  }
+  function clearLineHere() {
+    if (!scene || !onChange || !activeLineId) return;
+    onChange({ ...scene, strokes: (scene.strokes ?? []).filter((st) => st.lineId !== activeLineId) });
+  }
+  function renameLine(id: string) {
+    const line = lines.find((l) => l.id === id);
+    const name = line && window.prompt(t("Название линии:", "Line name:"), line.name)?.trim();
+    if (name) onLinesChange?.(lines.map((l) => (l.id === id ? { ...l, name } : l)));
+  }
+  function recolorLine(id: string, color: string) {
+    onLinesChange?.(lines.map((l) => (l.id === id ? { ...l, color } : l)));
+  }
+  function deleteLine(id: string) {
+    const line = lines.find((l) => l.id === id);
+    if (!line || !window.confirm(t(`Удалить линию «${line.name}» со всех панорам?`, `Delete line "${line.name}" from all panoramas?`))) return;
+    exitLineMode();
+    onLinesChange?.(lines.filter((l) => l.id !== id));
+    if (activeLineId === id) setActiveLineId(null);
+    if (focusLineId === id) setFocusLineId(null);
+    for (const sc of scenes) {
+      if (sc.strokes?.some((st) => st.lineId === id)) onChange?.({ ...sc, strokes: sc.strokes.filter((st) => st.lineId !== id) });
+    }
+  }
+
   function goTo(id: string) {
     if (id === currentId) return;
     setSelectedId(null);
@@ -699,6 +880,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }
 
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
+  const activeLine = lines.find((l) => l.id === activeLineId) ?? null;
+  const sceneLineIds = lines.filter((l) => scene?.strokes?.some((st) => st.lineId === l.id)).map((l) => l.id);
 
   if (!scene) return null;
 
@@ -712,6 +895,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       onPointerCancel={pointerUp}
     >
       <canvas ref={canvasRef} className="pano-canvas" />
+      <canvas ref={linesCanvasRef} className="pano-lines" />
 
       {scene.hotspots.map((h) => (
         <button
@@ -758,6 +942,26 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           <button className="pano-btn close" onClick={onClose} title={t("Закрыть", "Close")}>✕</button>
         </div>
       </div>
+
+      {linesEnabled && sceneLineIds.length > 0 && (
+        <div className="pano-legend" data-hud onPointerDown={(e) => e.stopPropagation()}>
+          {sceneLineIds.map((id) => {
+            const def = lines.find((l) => l.id === id);
+            if (!def) return null;
+            return (
+              <button
+                key={id}
+                className={`pano-legend-chip${focusLineId === id ? " on" : ""}`}
+                onClick={() => setFocusLineId(focusLineId === id ? null : id)}
+                title={t("Подсветить линию", "Highlight line")}
+              >
+                <span className="pano-legend-dot" style={{ background: def.color }} />
+                {def.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {edit && editable && (
         <div className="pano-edit" data-hud onPointerDown={(e) => e.stopPropagation()}>
@@ -860,6 +1064,72 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   </button>
                 )}
               </div>
+              {linesEnabled && onLinesChange && (
+                <>
+                  <div className="row" style={{ gap: 6 }}>
+                    <select
+                      className="pano-input grow"
+                      value={activeLine?.id ?? ""}
+                      onChange={(e) => {
+                        if (e.target.value === "__new") { createLine(); return; }
+                        setActiveLineId(e.target.value || null);
+                      }}
+                    >
+                      <option value="">{t("Линия…", "Line…")}</option>
+                      {lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      <option value="__new">{t("➕ Новая линия…", "➕ New line…")}</option>
+                    </select>
+                    {activeLine && (
+                      <>
+                        <input
+                          type="color"
+                          className="pano-color"
+                          value={activeLine.color}
+                          onChange={(e) => recolorLine(activeLine.id, e.target.value)}
+                          title={t("Цвет линии", "Line colour")}
+                        />
+                        <button className="pano-btn" onClick={() => renameLine(activeLine.id)} title={t("Переименовать", "Rename")}>✎</button>
+                        <button className="pano-btn" onClick={() => deleteLine(activeLine.id)} title={t("Удалить линию", "Delete line")}>🗑</button>
+                      </>
+                    )}
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button className={`pano-btn wide${lineMode === "points" ? " on" : ""}`} onClick={() => startLineMode("points")}>〰 {t("По точкам", "By points")}</button>
+                    <button className={`pano-btn wide${lineMode === "free" ? " on" : ""}`} onClick={() => startLineMode("free")}>✍ {t("От руки", "Freehand")}</button>
+                  </div>
+                  {lineMode ? (
+                    <>
+                      <div className="pano-hint-line">
+                        {lineMode === "points"
+                          ? t("Тапайте вдоль линии — каждая точка добавляет изгиб. Панораму можно вращать перетаскиванием.", "Tap along the line — each tap adds a bend. You can still rotate the panorama by dragging.")
+                          : t("Ведите пальцем/мышью вдоль линии — штрих рисуется, пока держите.", "Drag along the line to paint it — it draws while you hold.")}
+                      </div>
+                      <div className="row" style={{ gap: 6 }}>
+                        {lineMode === "points" && (
+                          <>
+                            <button className="pano-btn wide on" disabled={draftCount < 2} onClick={finishPointStroke}>✓ {t("Готово", "Done")}{draftCount ? ` (${draftCount})` : ""}</button>
+                            <button className="pano-btn" disabled={!draftCount} onClick={() => { draftRef.current = draftRef.current.slice(0, -1); setDraftCount(draftRef.current.length); }} title={t("Убрать последнюю точку", "Remove last point")}>↶ {t("точка", "point")}</button>
+                            <button className={`pano-btn${smoothPoints ? " on" : ""}`} onClick={() => setSmoothPoints(!smoothPoints)} title={t("Плавная кривая вместо ломаной", "Smooth curve instead of a polyline")}>〜 {t("Сгладить", "Smooth")}</button>
+                          </>
+                        )}
+                        {lineMode === "free" && (
+                          <button className="pano-btn wide" disabled={!scene.strokes?.length} onClick={undoStroke}>↶ {t("Отменить штрих", "Undo stroke")}</button>
+                        )}
+                        <button className="pano-btn" onClick={exitLineMode}>✕ {t("Выход", "Exit")}</button>
+                      </div>
+                    </>
+                  ) : (
+                    !!scene.strokes?.length && (
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="pano-btn wide" onClick={undoStroke}>↶ {t("Отменить последний штрих", "Undo last stroke")}</button>
+                        {activeLine && scene.strokes.some((st) => st.lineId === activeLine.id) && (
+                          <button className="pano-btn wide" onClick={clearLineHere}>🧽 {t("Стереть линию здесь", "Erase line here")}</button>
+                        )}
+                      </div>
+                    )
+                  )}
+                </>
+              )}
               <div className="row" style={{ gap: 6 }}>
                 <button className="pano-btn wide" onClick={saveStartView}>{t("Запомнить вид", "Remember view")}</button>
               </div>

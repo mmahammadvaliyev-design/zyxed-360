@@ -18,6 +18,7 @@ import {
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../src/engine/gyro";
 import { loadBitmap, bitmapSize, closeBitmap } from "../src/engine/bitmap";
 import type { Hotspot, NotePdf, SceneMeta, TourManifest } from "../src/engine/types";
+import { drawStrokes } from "../src/engine/lines";
 import { dataUrlToBytes, describeModelError, fileIcon, isViewable3d, mimeForName } from "../src/engine/files";
 
 const ROTATE_SPEED = rad(9);
@@ -28,6 +29,7 @@ const app = document.getElementById("app")!;
 app.innerHTML = `
   <div class="pano-wrap" id="wrap">
     <canvas class="pano-canvas" id="canvas"></canvas>
+    <canvas class="pano-lines" id="lines"></canvas>
     <div class="pano-veil on" id="veil"><div class="pano-loader" id="veil-text">Загружаю тур…</div></div>
     <div class="pano-top" data-hud id="top" hidden>
       <div class="pano-title"><b id="title"></b><span class="pano-sub" id="sub"></span></div>
@@ -38,6 +40,7 @@ app.innerHTML = `
         <button class="pano-btn" id="btn-fs" title="Во весь экран" hidden>⤢</button>
       </div>
     </div>
+    <div class="pano-legend" data-hud id="legend" hidden></div>
     <div class="pano-strip" data-hud id="strip" hidden></div>
     <div class="pano-toast" id="toast" hidden></div>
     <button class="pano-map-mini" data-hud id="map-mini" title="Развернуть карту" hidden>
@@ -55,6 +58,9 @@ app.innerHTML = `
 
 const wrapEl = document.getElementById("wrap")!;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+const linesCanvas = document.getElementById("lines") as HTMLCanvasElement;
+const legendEl = document.getElementById("legend")!;
+legendEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 const veil = document.getElementById("veil")!;
 const veilText = document.getElementById("veil-text")!;
 const topBar = document.getElementById("top")!;
@@ -129,6 +135,30 @@ let lang: "ru" | "en" = "ru";
 
 function currentScene(): SceneMeta | undefined {
   return scenes[currentIndex];
+}
+
+// Функция «Линии»: легенда — линии, проходящие через текущую панораму; нажатие
+// подсвечивает линию (остальные приглушаются), повторное — снимает подсветку.
+let focusLineId: string | null = null;
+function renderLegend() {
+  legendEl.innerHTML = "";
+  const lines = manifest.lines ?? [];
+  const strokes = currentScene()?.strokes ?? [];
+  const present = lines.filter((l) => strokes.some((st) => st.lineId === l.id));
+  legendEl.hidden = !manifest.features?.lines || present.length === 0;
+  for (const l of present) {
+    const chip = document.createElement("button");
+    chip.className = "pano-legend-chip" + (focusLineId === l.id ? " on" : "");
+    const dot = document.createElement("span");
+    dot.className = "pano-legend-dot";
+    dot.style.background = l.color;
+    chip.append(dot, document.createTextNode(l.name));
+    chip.addEventListener("click", () => {
+      focusLineId = focusLineId === l.id ? null : l.id;
+      renderLegend();
+    });
+    legendEl.appendChild(chip);
+  }
 }
 
 function pinchDistance(): number {
@@ -414,6 +444,7 @@ async function goTo(index: number) {
   titleEl.textContent = scene.title;
   subEl.textContent = `${index + 1} / ${scenes.length}`;
   renderHotspots(scene);
+  renderLegend();
   renderStrip();
   updateMapPinHighlight();
 
@@ -667,6 +698,7 @@ function frame(now: number) {
   renderer.render(basis);
 
   const scene = currentScene();
+  drawLinesLayer(basis, width, height, scene);
   if (scene) {
     for (const h of scene.hotspots) {
       const el = hotspotEls.get(h.id);
@@ -682,6 +714,22 @@ function frame(now: number) {
   }
 }
 requestAnimationFrame(frame);
+
+function drawLinesLayer(basis: Basis, width: number, height: number, scene: SceneMeta | undefined) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pw = Math.round(width * dpr);
+  const ph = Math.round(height * dpr);
+  if (linesCanvas.width !== pw || linesCanvas.height !== ph) {
+    linesCanvas.width = pw;
+    linesCanvas.height = ph;
+  }
+  const ctx = linesCanvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  if (!manifest?.features?.lines || !scene?.strokes?.length) return;
+  drawStrokes(ctx, width, height, basis, scene.strokes, manifest.lines ?? [], focusLineId);
+}
 
 // ── Старт: подгружаем данные тура ─────────────────────────────────
 // Экспорт встраивает манифест прямо в страницу (id="tour-data") — так пакет

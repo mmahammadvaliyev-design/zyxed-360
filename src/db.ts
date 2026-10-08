@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Hotspot, SceneMeta } from "./engine/types";
+import type { Hotspot, LineDef, SceneMeta } from "./engine/types";
 
 export type { Hotspot };
 
@@ -12,6 +12,9 @@ export interface Project {
   // на весь проект — точки съёмки расставляются по ней вручную (см.
   // SceneMeta.mapX/mapY в engine/types.ts).
   mapImage?: Blob;
+  // Функция «Линии» (хайлайтер): линии тура — название и цвет; штрихи этих
+  // линий лежат на панорамах (Scene.strokes).
+  lines?: LineDef[];
 }
 
 // Одна панорама тура. Картинка и превью лежат прямо в базе как Blob —

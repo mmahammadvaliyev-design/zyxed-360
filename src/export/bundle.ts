@@ -142,6 +142,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
           hotspots: await exportHotspots(s.hotspots),
           mapX: s.mapX,
           mapY: s.mapY,
+          strokes: isFeatureEnabled("lines") && s.strokes?.length ? s.strokes : undefined,
         }),
       ),
     ),
@@ -149,6 +150,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
     features: getFeatureSnapshot(),
     branding: getBranding(),
     lang: getAppLanguage(),
+    lines: isFeatureEnabled("lines") && project.lines?.length ? project.lines : undefined,
     mapImage: isFeatureEnabled("map") && project.mapImage ? await blobToDataUrl(project.mapImage) : undefined,
   };
 
