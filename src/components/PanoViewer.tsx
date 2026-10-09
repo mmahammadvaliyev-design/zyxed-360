@@ -78,6 +78,12 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [fullscreen, setFullscreen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [noteHotspot, setNoteHotspot] = useState<Hotspot | null>(null);
+  // Окно документации открывается сбоку — на стороне, противоположной месту
+  // нажатия, чтобы не закрывать трубу; его можно перетащить за заголовок.
+  const [noteSide, setNoteSide] = useState<"left" | "right">("right");
+  const [notePos, setNotePos] = useState<{ x: number; y: number } | null>(null);
+  const noteCardRef = useRef<HTMLDivElement>(null);
+  const noteDragRef = useRef<{ dx: number; dy: number } | null>(null);
   // Открытая в карточке 3D-модель (.glb) и состояние её загрузки.
   const [model3d, setModel3d] = useState<NotePdf | null>(null);
   const [modelStatus, setModelStatus] = useState<"loading" | "ready" | { error: string }>("loading");
@@ -190,6 +196,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setNotePhotoUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [noteHotspot]);
+
+  // Новое окно документации — на своё место (положение после перетаскивания не переносим).
+  useEffect(() => {
+    setNotePos(null);
+  }, [noteHotspot?.id]);
 
   // Черновик штриха принадлежит одной панораме и режиму правки.
   useEffect(() => {
@@ -504,6 +515,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   };
 
   function handleTap(clientX: number, clientY: number, target: HTMLElement | null) {
+    const wrapRect = wrapRef.current?.getBoundingClientRect();
+    if (wrapRect) setNoteSide(clientX < wrapRect.left + wrapRect.width / 2 ? "right" : "left");
     // Режим «по точкам»: каждый тап по панораме — новая вершина ломаной.
     if (lineModeRef.current === "points" && !target?.closest("[data-hud]")) {
       const p = anglesAt(clientX, clientY);
@@ -524,7 +537,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       const hitId = lineAt(clientX, clientY);
       if (hitId) {
         const def = linesRef.current.find((l) => l.id === hitId);
-        if (def && lineHasDocs(def)) openLineCard(hitId);
+        // Повторное нажатие на ту же линию закрывает её окно.
+        if (def && lineHasDocs(def)) { if (noteHotspotRef.current?.id === `line:${hitId}`) setNoteHotspot(null); else openLineCard(hitId); }
         else if (def) { setNoteHotspot(null); flash(def.name); } // документации нет — закрываем старую карточку и называем линию
         if (editRef.current) setActiveLineId(hitId);
         return;
@@ -880,7 +894,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   function activateHotspot(h: Hotspot) {
     if (edit) { setSelectedId(h.id); return; }
     if (h.targetId && scenes.some((s) => s.id === h.targetId)) { goTo(h.targetId); return; }
-    if (richNotes && (h.note?.trim() || h.photo || h.pdfs?.length)) { setNoteHotspot(h); return; }
+    if (richNotes && (h.note?.trim() || h.photo || h.pdfs?.length)) { setNoteHotspot(noteHotspotRef.current?.id === h.id ? null : h); return; }
     flash(h.label);
   }
 
@@ -1385,10 +1399,42 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       )}
 
       {noteHotspot && (
-        <div className="pano-note" data-hud onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          ref={noteCardRef}
+          className={`pano-note side-${noteSide}`}
+          style={notePos ? { left: notePos.x, top: notePos.y, right: "auto", bottom: "auto", margin: 0, transform: "none" } : undefined}
+          data-hud
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           {notePhotoUrl && <img className="pano-note-photo" src={notePhotoUrl} alt="" />}
           <div className="pano-note-body">
-            <div className="pano-note-title">
+            <div
+              className="pano-note-title"
+              title={t("Перетащите, чтобы переместить окно", "Drag to move this window")}
+              onPointerDown={(e) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                const card = noteCardRef.current;
+                const wr = wrapRef.current?.getBoundingClientRect();
+                if (!card || !wr) return;
+                const cr = card.getBoundingClientRect();
+                noteDragRef.current = { dx: e.clientX - cr.left, dy: e.clientY - cr.top };
+                setNotePos({ x: cr.left - wr.left, y: cr.top - wr.top });
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* указатель уже неактивен */ }
+              }}
+              onPointerMove={(e) => {
+                const d = noteDragRef.current;
+                const card = noteCardRef.current;
+                const wr = wrapRef.current?.getBoundingClientRect();
+                if (!d || !card || !wr) return;
+                const cr = card.getBoundingClientRect();
+                setNotePos({
+                  x: clamp(e.clientX - wr.left - d.dx, 0, Math.max(0, wr.width - cr.width)),
+                  y: clamp(e.clientY - wr.top - d.dy, 0, Math.max(0, wr.height - cr.height)),
+                });
+              }}
+              onPointerUp={() => { noteDragRef.current = null; }}
+              onPointerCancel={() => { noteDragRef.current = null; }}
+            >
               <span>{noteHotspot.label}</span>
               <button className="pano-note-close" onClick={() => setNoteHotspot(null)} aria-label={t("Закрыть", "Close")}>✕</button>
             </div>

@@ -421,3 +421,17 @@
 .pano-edit { transition: opacity 0.12s; }
 
 .pano-width-default { opacity: 0.6; font-weight: 400; }
+
+/* Окно документации: на широком экране — сбоку по центру (сторона выбирается
+   по месту нажатия), на телефоне остаётся «шторкой» снизу. Двигается за заголовок. */
+@media (min-width: 720px) {
+  .pano-note {
+    left: auto; right: auto; bottom: auto; top: 50%; transform: translateY(-50%);
+    width: 380px; max-width: 380px; margin: 0;
+    max-height: calc(100% - 200px);
+  }
+  .pano-note.side-right { right: 14px; }
+  .pano-note.side-left { left: 14px; }
+}
+.pano-note-title { cursor: grab; touch-action: none; user-select: none; }
+.pano-note-title:active { cursor: grabbing; }

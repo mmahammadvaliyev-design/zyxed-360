@@ -328,10 +328,21 @@ function openModel(pdf: NotePdf) {
 // Функция «Богатые заметки»: постоянная карточка с описанием/фото вместо
 // короткого тоста — только если фича была включена на момент экспорта
 // (manifest.features, см. src/export/bundle.ts) и у точки есть что показать.
+// Окно документации открывается сбоку — на стороне, противоположной месту
+// нажатия, чтобы не закрывать трубу; его можно перетащить за заголовок.
+let noteSide: "left" | "right" = "right";
+
+// Повторное нажатие на тот же значок/линию закрывает окно.
+function toggleNote(h: Hotspot) {
+  if (noteEl && noteEl.dataset.noteId === h.id) closeNote();
+  else openNote(h);
+}
+
 function openNote(h: Hotspot) {
   closeNote();
   const card = document.createElement("div");
-  card.className = "pano-note";
+  card.className = "pano-note side-" + noteSide;
+  card.dataset.noteId = h.id;
   card.dataset.hud = "1";
   card.addEventListener("pointerdown", (e) => e.stopPropagation());
 
@@ -354,6 +365,36 @@ function openNote(h: Hotspot) {
   closeBtn.textContent = "✕";
   closeBtn.addEventListener("click", closeNote);
   title.append(label, closeBtn);
+  title.title = lang === "en" ? "Drag to move this window" : "Перетащите, чтобы переместить окно";
+  let drag: { dx: number; dy: number } | null = null;
+  const place = (x: number, y: number) => {
+    card.style.left = x + "px";
+    card.style.top = y + "px";
+    card.style.right = "auto";
+    card.style.bottom = "auto";
+    card.style.margin = "0";
+    card.style.transform = "none";
+  };
+  title.addEventListener("pointerdown", (e) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const cr = card.getBoundingClientRect();
+    const wr = wrapEl.getBoundingClientRect();
+    drag = { dx: e.clientX - cr.left, dy: e.clientY - cr.top };
+    place(cr.left - wr.left, cr.top - wr.top);
+    try { title.setPointerCapture(e.pointerId); } catch { /* указатель уже неактивен */ }
+  });
+  title.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const cr = card.getBoundingClientRect();
+    const wr = wrapEl.getBoundingClientRect();
+    place(
+      clamp(e.clientX - wr.left - drag.dx, 0, Math.max(0, wr.width - cr.width)),
+      clamp(e.clientY - wr.top - drag.dy, 0, Math.max(0, wr.height - cr.height)),
+    );
+  });
+  const endDrag = () => { drag = null; };
+  title.addEventListener("pointerup", endDrag);
+  title.addEventListener("pointercancel", endDrag);
   body.appendChild(title);
   const noteText = h.note;
   if (noteText) {
@@ -410,7 +451,7 @@ function activateHotspot(h: Hotspot) {
     }
   }
   if (manifest.features?.richNotes && (h.note || h.photoUrl || h.pdfs?.length)) {
-    openNote(h);
+    toggleNote(h);
     return;
   }
   flash(h.label);
@@ -587,6 +628,8 @@ wrapEl.addEventListener("pointerup", onPointerUp);
 wrapEl.addEventListener("pointercancel", onPointerUp);
 
 function handleTap(target: HTMLElement | null, clientX: number, clientY: number) {
+  const wr0 = wrapEl.getBoundingClientRect();
+  noteSide = clientX < wr0.left + wr0.width / 2 ? "right" : "left";
   const spot = target?.closest<HTMLElement>("[data-spot]");
   if (spot) {
     const h = currentScene()?.hotspots.find((x) => x.id === spot.dataset.spot);
@@ -597,7 +640,7 @@ function handleTap(target: HTMLElement | null, clientX: number, clientY: number)
   if (!target?.closest("[data-hud]")) {
     const line = lineAt(clientX, clientY);
     if (line) {
-      if (lineHasDocs(line)) openNote(lineToHotspot(line));
+      if (lineHasDocs(line)) toggleNote(lineToHotspot(line));
       else { closeNote(); flash(line.name); } // документации нет — закрываем старую карточку и называем линию
       return;
     }
