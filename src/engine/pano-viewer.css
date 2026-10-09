@@ -469,3 +469,50 @@
 @media (max-width: 719px) {
   .pano-map-mini { width: 140px; height: 98px; }
 }
+
+/* ── Размеры и сворачивание ──────────────────────────────────────────────
+   Компьютер: крупная миникарта (240×168). Телефон (<720px): всё компактное,
+   миникарта 96×68 сворачивается в кнопку 🗺, легенда и панель правки —
+   в заголовок. Состояния — классы на .pano-wrap (map-collapsed/legend-collapsed). */
+.pano-wrap { --mini-w: 240px; --mini-h: 168px; }
+.pano-map-mini { width: var(--mini-w); height: var(--mini-h); }
+.pano-map-mini-toggle, .pano-legend-toggle, .pano-edit-head { display: none; }
+.pano-map-mini-toggle {
+  position: absolute; z-index: 8;
+  right: calc(12px + var(--mini-w) - 12px); top: calc(62px + env(safe-area-inset-top) - 8px);
+  width: 24px; height: 24px; padding: 0;
+  align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(4, 6, 12, 0.85); color: #fff; font-size: 13px; line-height: 1; cursor: pointer;
+}
+.pano-edit-head { align-items: center; justify-content: space-between; font-size: 12px; color: rgba(255, 255, 255, 0.75); }
+
+@media (max-width: 719px) {
+  .pano-wrap { --mini-w: 96px; --mini-h: 68px; }
+  .pano-map-mini-toggle { display: flex; }
+  .pano-wrap.map-collapsed .pano-map-mini { display: none; }
+  .pano-wrap.map-collapsed .pano-map-mini-toggle {
+    right: 12px; top: calc(62px + env(safe-area-inset-top));
+    width: 34px; height: 34px; border-radius: 10px; font-size: 16px;
+  }
+  .pano-map-mini { border-radius: 9px; }
+  .pano-map-mini-pin { width: 7px; height: 7px; }
+  .pano-map-mini-expand { width: 18px; height: 18px; font-size: 11px; }
+
+  /* легенда: компактные чипы и сворачивание */
+  .pano-legend { gap: 4px; }
+  .pano-legend-chip { height: 26px; font-size: 12px; padding: 0 9px 0 8px; }
+  .pano-legend-toggle { display: inline-flex; }
+  .pano-wrap.legend-collapsed .pano-legend-chip:not(.pano-legend-toggle) { display: none; }
+
+  /* панель правки: компактная и сворачиваемая */
+  .pano-edit { padding: 8px; gap: 5px; max-height: 50%; }
+  .pano-edit-head { display: flex; }
+  .pano-edit.collapsed > :not(.pano-edit-head) { display: none; }
+  .pano-edit.collapsed { padding: 6px 10px; }
+  .pano-btn { padding: 6px 8px; font-size: 13px; }
+  .pano-btn.wide { padding: 7px; }
+  .pano-input { padding: 6px 8px; font-size: 13px; }
+  .pano-title { font-size: 13px; }
+  .pano-brand img { max-height: 36px; max-width: 34vw; }
+}

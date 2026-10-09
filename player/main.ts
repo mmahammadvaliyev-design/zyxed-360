@@ -50,6 +50,7 @@ app.innerHTML = `
       <img id="map-mini-img" alt="" />
       <span class="pano-map-mini-expand">⤢</span>
     </button>
+    <button class="pano-map-mini-toggle" data-hud id="map-mini-toggle" title="Свернуть карту" hidden>–</button>
     <div class="pano-map" data-hud id="map-overlay" hidden>
       <button class="pano-btn close pano-map-close" id="map-close">✕</button>
       <div class="pano-map-frame" id="map-frame">
@@ -175,6 +176,16 @@ function lineAt(clientX: number, clientY: number): LineDef | null {
 
 function renderLegend() {
   legendEl.innerHTML = "";
+  const legendToggle = document.createElement("button");
+  legendToggle.className = "pano-legend-chip pano-legend-toggle";
+  const collapsedNow = wrapEl.classList.contains("legend-collapsed");
+  legendToggle.textContent = "〰 " + (collapsedNow ? "▸" : "▾");
+  legendToggle.title = collapsedNow ? "Показать линии" : "Свернуть список линий";
+  legendToggle.addEventListener("click", () => {
+    wrapEl.classList.toggle("legend-collapsed");
+    renderLegend();
+  });
+  legendEl.appendChild(legendToggle);
   const lines = manifest.lines ?? [];
   const strokes = currentScene()?.strokes ?? [];
   const present = lines.filter((l) => strokes.some((st) => st.lineId === l.id));
@@ -503,6 +514,7 @@ function renderMapPins() {
       goTo(i);
       mapOverlay.hidden = true;
       mapMini.hidden = false;
+    mapMiniToggle.hidden = false;
     });
     mapFrame.appendChild(pin);
     mapPinEls.set(s.id, pin);
@@ -680,6 +692,15 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "-") view.fov = clamp(view.fov * 1.15, MIN_FOV, MAX_FOV);
 });
 window.addEventListener("keyup", (e) => keys.delete(e.key));
+
+// Сворачивание на телефоне: миникарта → кнопка 🗺, легенда → один чип.
+const mapMiniToggle = document.getElementById("map-mini-toggle") as HTMLButtonElement;
+mapMiniToggle.addEventListener("pointerdown", (e) => e.stopPropagation());
+mapMiniToggle.addEventListener("click", () => {
+  const collapsed = wrapEl.classList.toggle("map-collapsed");
+  mapMiniToggle.textContent = collapsed ? "🗺" : "–";
+  mapMiniToggle.title = collapsed ? "Показать карту" : "Свернуть карту";
+});
 
 btnSpots.addEventListener("click", () => {
   spotsHidden = !spotsHidden;

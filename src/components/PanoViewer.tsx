@@ -67,6 +67,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const widthDraftRef = useRef(widthDraft);
   widthDraftRef.current = widthDraft;
   const widthDraggingRef = useRef(false);
+  // Сворачивание на телефоне: миникарта → кнопка 🗺, легенда и панель правки → заголовок.
+  const [mapMiniCollapsed, setMapMiniCollapsed] = useState(false);
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
+  const [editCollapsed, setEditCollapsed] = useState(false);
   const [adjustingWidth, setAdjustingWidth] = useState(false); // тянут ползунок толщины — панель бледнеет, чтобы видеть зону
   const [lineDocOpen, setLineDocOpen] = useState(false); // раскрыт редактор документации линии
   const [smoothPoints, setSmoothPoints] = useState(true); // «по точкам» → плавная кривая
@@ -1038,7 +1042,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   return (
     <div
-      className={`pano-wrap${edit && editable ? " editing" : ""}`}
+      className={`pano-wrap${edit && editable ? " editing" : ""}${mapMiniCollapsed ? " map-collapsed" : ""}${legendCollapsed ? " legend-collapsed" : ""}`}
       ref={wrapRef}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
@@ -1102,6 +1106,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
       {linesEnabled && sceneLineIds.length > 0 && (
         <div className="pano-legend" data-hud onPointerDown={(e) => e.stopPropagation()}>
+          <button
+            className="pano-legend-chip pano-legend-toggle"
+            onClick={() => setLegendCollapsed(!legendCollapsed)}
+            title={legendCollapsed ? t("Показать линии", "Show lines") : t("Свернуть список линий", "Collapse the lines list")}
+          >
+            〰 {legendCollapsed ? "▸" : "▾"}
+          </button>
           {sceneLineIds.map((id) => {
             const def = lines.find((l) => l.id === id);
             if (!def) return null;
@@ -1128,7 +1139,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       )}
 
       {edit && editable && (
-        <div className={`pano-edit${adjustingWidth ? " dim" : ""}`} data-hud onPointerDown={(e) => e.stopPropagation()}>
+        <div className={`pano-edit${adjustingWidth ? " dim" : ""}${editCollapsed ? " collapsed" : ""}`} data-hud onPointerDown={(e) => e.stopPropagation()}>
+          <div className="pano-edit-head">
+            <span>✏️ {t("Меню правки", "Edit menu")}</span>
+            <button className="pano-btn" onClick={() => setEditCollapsed(!editCollapsed)} title={editCollapsed ? t("Развернуть меню", "Expand menu") : t("Свернуть меню", "Collapse menu")}>{editCollapsed ? "▴" : "▾"}</button>
+          </div>
           {linesEnabled && !!onLinesChange && (
             <div className="pano-edit-tabs">
               <button className={`pano-btn${editTab === "spots" ? " on" : ""}`} onClick={() => switchEditTab("spots")}>◎ {t("Переходы и заметки", "Transitions & notes")}</button>
@@ -1513,6 +1528,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       {toast && <div className="pano-toast">{toast}</div>}
 
       {mapEnabled && mapUrl && !mapOpen && (
+        <>
         <button className="pano-map-mini" data-hud onPointerDown={(e) => e.stopPropagation()} onClick={() => setMapOpen(true)} title={t("Развернуть карту", "Expand map")}>
           <img src={mapUrl} alt="" />
           {scenes
@@ -1526,6 +1542,16 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             ))}
           <span className="pano-map-mini-expand">⤢</span>
         </button>
+        <button
+          className="pano-map-mini-toggle"
+          data-hud
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setMapMiniCollapsed(!mapMiniCollapsed)}
+          title={mapMiniCollapsed ? t("Показать карту", "Show map") : t("Свернуть карту", "Collapse map")}
+        >
+          {mapMiniCollapsed ? "🗺" : "–"}
+        </button>
+        </>
       )}
 
       {mapOpen && mapUrl && (
