@@ -461,3 +461,11 @@
 
 /* Панель правки поверх логотипа и миникарты (логотип раньше просвечивал сквозь неё на телефоне). */
 .pano-edit { z-index: 7; }
+
+/* Миникарта крупнее (было 112×78): на широком экране 168×117, на телефоне 140×98. */
+.pano-map-mini { width: 168px; height: 117px; border-radius: 12px; }
+.pano-map-mini-pin { width: 10px; height: 10px; }
+.pano-map-mini-expand { width: 24px; height: 24px; font-size: 14px; }
+@media (max-width: 719px) {
+  .pano-map-mini { width: 140px; height: 98px; }
+}
