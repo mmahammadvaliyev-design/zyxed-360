@@ -163,6 +163,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
           mapX: s.mapX,
           mapY: s.mapY,
           strokes: isFeatureEnabled("lines") && s.strokes?.length ? s.strokes : undefined,
+          lineWidths: isFeatureEnabled("lines") && s.lineWidths && Object.keys(s.lineWidths).length ? s.lineWidths : undefined,
         }),
       ),
     ),

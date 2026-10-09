@@ -32,6 +32,7 @@ interface BackupScene {
   hotspots: BackupHotspot[];
   mapX?: number;
   strokes?: Stroke[];
+  lineWidths?: Record<string, number>;
   mapY?: number;
 }
 interface BackupManifest {
@@ -84,6 +85,7 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
       mapX: s.mapX,
       mapY: s.mapY,
       strokes: s.strokes?.length ? s.strokes : undefined,
+      lineWidths: s.lineWidths && Object.keys(s.lineWidths).length ? s.lineWidths : undefined,
     });
   }
 
@@ -208,6 +210,7 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
       mapX: s.mapX,
       mapY: s.mapY,
       strokes: s.strokes?.length ? s.strokes.map((st) => ({ ...st, id: uid() })) : undefined,
+      lineWidths: s.lineWidths,
     });
   }
   return project;

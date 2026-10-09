@@ -31,8 +31,10 @@ const MIN_WIDTH_PX = 4;
 const MAX_WIDTH_PX = 320;
 const TOUCH_SLOP_PX = 10; // запас на неточность пальца вокруг зоны
 
-export function lineWidthDeg(l: Pick<LineDef, "width">): number {
-  return clamp(l.width ?? DEFAULT_LINE_WIDTH_DEG, MIN_LINE_WIDTH_DEG, MAX_LINE_WIDTH_DEG);
+// Толщина линии: сначала значение для данной панорамы (overrides —
+// Scene.lineWidths), затем общая толщина линии, затем 2.5°.
+export function lineWidthDeg(l: Pick<LineDef, "id" | "width">, overrides?: Record<string, number>): number {
+  return clamp(overrides?.[l.id] ?? l.width ?? DEFAULT_LINE_WIDTH_DEG, MIN_LINE_WIDTH_DEG, MAX_LINE_WIDTH_DEG);
 }
 function widthPx(widthDeg: number, scale: number): number {
   return clamp(rad(widthDeg) * scale, MIN_WIDTH_PX, MAX_WIDTH_PX);
@@ -216,6 +218,7 @@ export function drawStrokes(
   focusId: string | null,
   draft?: DraftStroke | null,
   ghostHidden = false, // в режиме правки «невидимые» линии рисуем бледно, чтобы автор видел зоны
+  widths?: Record<string, number>, // толщина линий на этой панораме (Scene.lineWidths)
 ): void {
   const scale = height / (2 * basis.tanHalf);
   const focus = focusId && strokes.some((s) => s.lineId === focusId) ? focusId : null;
@@ -247,7 +250,7 @@ export function drawStrokes(
     const hiddenNow = !!def.hidden && focus !== def.id;
     if (hiddenNow && !ghostHidden) continue;
     const strength = hiddenNow ? 0.28 : focus && focus !== s.lineId ? 0.22 : 1;
-    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength, widthPx(lineWidthDeg(def), scale), !!def.taper);
+    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength, widthPx(lineWidthDeg(def, widths), scale), !!def.taper);
   }
 
   if (draft && draft.points.length) {
@@ -333,6 +336,7 @@ export function hitTestStrokes(
   height: number,
   x: number,
   y: number,
+  widths?: Record<string, number>,
 ): string | null {
   const scale = height / (2 * basis.tanHalf);
   let best: { id: string; d: number } | null = null;
@@ -341,7 +345,7 @@ export function hitTestStrokes(
     if (!def || s.points.length < 2) continue;
     // Зона = вся полоса линии (половина ширины в каждую сторону, с учётом
     // сужения к концу) + запас под палец.
-    const w0 = widthPx(lineWidthDeg(def), scale);
+    const w0 = widthPx(lineWidthDeg(def, widths), scale);
     const pts = samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height);
     for (let i = 0; i < pts.length - 1; i++) {
       const tol = widthAt(i, pts.length, w0, !!def.taper) / 2 + TOUCH_SLOP_PX;

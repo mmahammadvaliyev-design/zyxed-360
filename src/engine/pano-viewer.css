@@ -419,3 +419,5 @@
 /* Пока тянут ползунок толщины линии, панель почти прозрачна — видна зона на панораме. */
 .pano-edit.dim { opacity: 0.15; transition: opacity 0.12s; }
 .pano-edit { transition: opacity 0.12s; }
+
+.pano-width-default { opacity: 0.6; font-weight: 400; }

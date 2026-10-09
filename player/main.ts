@@ -160,7 +160,7 @@ function lineAt(clientX: number, clientY: number): LineDef | null {
   if (!manifest?.features?.lines || !scene?.strokes?.length || !all.length) return null;
   const rect = wrapEl.getBoundingClientRect();
   const basis = basisFor(view, rect.width, rect.height);
-  const id = hitTestStrokes(scene.strokes, all, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
+  const id = hitTestStrokes(scene.strokes, all, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top, scene.lineWidths);
   return all.find((l) => l.id === id) ?? null;
 }
 
@@ -787,7 +787,7 @@ function drawLinesLayer(basis: Basis, width: number, height: number, scene: Scen
   // Скрытый режим (кнопка 〰): рисунок не показываем, кроме линии, выбранной в легенде.
   const strokes = linesVisible ? scene.strokes : scene.strokes.filter((st) => st.lineId === focusLineId);
   if (!strokes.length) return;
-  drawStrokes(ctx, width, height, basis, strokes, manifest.lines ?? [], focusLineId);
+  drawStrokes(ctx, width, height, basis, strokes, manifest.lines ?? [], focusLineId, null, false, scene.lineWidths);
 }
 
 // ── Старт: подгружаем данные тура ─────────────────────────────────

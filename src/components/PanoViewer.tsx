@@ -59,6 +59,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
   const [linesVisible, setLinesVisible] = useState(true); // быстрый показ/скрытие всех линий в просмотре
+  const [widthDraft, setWidthDraft] = useState<{ lineId: string; value: number } | null>(null);
+  const widthDraftRef = useRef(widthDraft);
+  widthDraftRef.current = widthDraft;
+  const widthDraggingRef = useRef(false);
   const [adjustingWidth, setAdjustingWidth] = useState(false); // тянут ползунок толщины — панель бледнеет, чтобы видеть зону
   const [lineDocOpen, setLineDocOpen] = useState(false); // раскрыт редактор документации линии
   const [smoothPoints, setSmoothPoints] = useState(true); // «по точкам» → плавная кривая
@@ -296,13 +300,17 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       // Скрытый режим (кнопка 〰): рисунок линий не показываем, кроме линии,
       // выбранной в легенде, — иначе подсветка из легенды ничего бы не давала.
       if (!linesVisibleRef.current && !focusLineIdRef.current && !draftRef.current.length) return;
-      let strokes = scenesRef.current.find((s) => s.id === currentIdRef.current)?.strokes ?? [];
+      const sceneNow = scenesRef.current.find((s) => s.id === currentIdRef.current);
+      let strokes = sceneNow?.strokes ?? [];
+      // Толщина линий на этой панораме (+ черновик, пока тянут ползунок).
+      const wd = widthDraftRef.current;
+      const widths = wd ? { ...(sceneNow?.lineWidths ?? {}), [wd.lineId]: wd.value } : sceneNow?.lineWidths;
       if (!linesVisibleRef.current) strokes = strokes.filter((st) => st.lineId === focusLineIdRef.current);
       const active = linesRef.current.find((l) => l.id === activeLineIdRef.current);
       const draft = draftRef.current.length && active
-        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current, widthDeg: lineWidthDeg(active), taper: !!active.taper }
+        ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current, widthDeg: lineWidthDeg(active, widths), taper: !!active.taper }
         : null;
-      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current);
+      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current, widths);
     };
 
     let raf = 0;
@@ -779,7 +787,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return null;
     const basis = basisFor(viewRef.current, rect.width, rect.height);
-    return hitTestStrokes(scene.strokes, linesRef.current, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top);
+    return hitTestStrokes(scene.strokes, linesRef.current, basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top, scene.lineWidths);
   }
   async function pickLinePhoto(id: string, file: File | undefined) {
     if (!file) return;
@@ -806,6 +814,37 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     onChange({ ...scene, strokes: (scene.strokes ?? []).map((st) => (st.lineId === id ? { ...st, points: [...st.points].reverse() } : st)) });
   }
 
+  // Толщина линии на ТЕКУЩЕЙ панораме (Scene.lineWidths).
+  function setSceneLineWidth(lineId: string, value: number) {
+    if (!scene || !onChange) return;
+    onChange({ ...scene, lineWidths: { ...(scene.lineWidths ?? {}), [lineId]: value } });
+  }
+  function commitWidthDraft() {
+    const d = widthDraftRef.current;
+    widthDraggingRef.current = false;
+    if (d) setSceneLineWidth(d.lineId, d.value);
+    setWidthDraft(null);
+    setAdjustingWidth(false);
+  }
+  function resetSceneLineWidth(lineId: string) {
+    if (!scene || !onChange || scene.lineWidths?.[lineId] === undefined) return;
+    const { [lineId]: _drop, ...rest } = scene.lineWidths;
+    onChange({ ...scene, lineWidths: Object.keys(rest).length ? rest : undefined });
+  }
+  // «На все панорамы»: текущая толщина становится общей (LineDef.width), а
+  // индивидуальные значения этой линии на панорамах сбрасываются.
+  function applyWidthEverywhere(lineId: string) {
+    const def = lines.find((l) => l.id === lineId);
+    if (!def || !scene) return;
+    const value = lineWidthDeg(def, scene.lineWidths);
+    updateLine(lineId, { width: value });
+    for (const sc of scenes) {
+      if (sc.lineWidths?.[lineId] === undefined) continue;
+      const { [lineId]: _drop, ...rest } = sc.lineWidths;
+      onChange?.({ ...sc, lineWidths: Object.keys(rest).length ? rest : undefined });
+    }
+  }
+
   function renameLine(id: string) {
     const line = lines.find((l) => l.id === id);
     const name = line && window.prompt(t("Название линии:", "Line name:"), line.name)?.trim();
@@ -822,7 +861,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (activeLineId === id) setActiveLineId(null);
     if (focusLineId === id) setFocusLineId(null);
     for (const sc of scenes) {
-      if (sc.strokes?.some((st) => st.lineId === id)) onChange?.({ ...sc, strokes: sc.strokes.filter((st) => st.lineId !== id) });
+      if (sc.strokes?.some((st) => st.lineId === id) || sc.lineWidths?.[id] !== undefined) {
+        const { [id]: _drop, ...restWidths } = sc.lineWidths ?? {};
+        onChange?.({ ...sc, strokes: (sc.strokes ?? []).filter((st) => st.lineId !== id), lineWidths: Object.keys(restWidths).length ? restWidths : undefined });
+      }
     }
   }
 
@@ -1187,23 +1229,42 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                       </>
                     )}
                   </div>
-                  {activeLine && (
-                    <label className="pano-width-row">
-                      <span>{t("Толщина и зона клика", "Thickness & tap area")}: <b>{lineWidthDeg(activeLine).toFixed(1)}°</b></span>
-                      <input
-                        type="range"
-                        className="pano-range"
-                        min={MIN_LINE_WIDTH_DEG}
-                        max={MAX_LINE_WIDTH_DEG}
-                        step={0.1}
-                        value={lineWidthDeg(activeLine)}
-                        onPointerDown={() => setAdjustingWidth(true)}
-                        onPointerUp={() => setAdjustingWidth(false)}
-                        onPointerCancel={() => setAdjustingWidth(false)}
-                        onBlur={() => setAdjustingWidth(false)}
-                        onChange={(e) => updateLine(activeLine.id, { width: Number(e.target.value) })}
-                      />
-                    </label>
+                  {activeLine && scene && (
+                    <>
+                      <label className="pano-width-row">
+                        <span>
+                          {t("Толщина на этой панораме", "Thickness on this panorama")}:{" "}
+                          <b>{(widthDraft?.lineId === activeLine.id ? widthDraft.value : lineWidthDeg(activeLine, scene.lineWidths)).toFixed(1)}°</b>
+                          {scene.lineWidths?.[activeLine.id] === undefined && <span className="pano-width-default"> · {t("общая", "default")}</span>}
+                        </span>
+                        <input
+                          type="range"
+                          className="pano-range"
+                          min={MIN_LINE_WIDTH_DEG}
+                          max={MAX_LINE_WIDTH_DEG}
+                          step={0.1}
+                          value={widthDraft?.lineId === activeLine.id ? widthDraft.value : lineWidthDeg(activeLine, scene.lineWidths)}
+                          onPointerDown={() => { widthDraggingRef.current = true; setAdjustingWidth(true); }}
+                          onPointerUp={commitWidthDraft}
+                          onPointerCancel={commitWidthDraft}
+                          onBlur={commitWidthDraft}
+                          onKeyUp={commitWidthDraft}
+                          onChange={(e) => {
+                            const value = Number(e.target.value);
+                            if (widthDraggingRef.current) setWidthDraft({ lineId: activeLine.id, value });
+                            else setSceneLineWidth(activeLine.id, value); // клавиатура/колесо без перетаскивания
+                          }}
+                        />
+                      </label>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="pano-btn wide" onClick={() => applyWidthEverywhere(activeLine.id)} title={t("Сделать эту толщину общей для всех панорам", "Make this thickness the default for all panoramas")}>
+                          ⇉ {t("Эта толщина — на все панорамы", "Use this thickness everywhere")}
+                        </button>
+                        {scene.lineWidths?.[activeLine.id] !== undefined && (
+                          <button className="pano-btn" onClick={() => resetSceneLineWidth(activeLine.id)} title={t("Вернуть общую толщину на этой панораме", "Back to the default thickness on this panorama")}>↺</button>
+                        )}
+                      </div>
+                    </>
                   )}
                   {activeLine && (
                     <div className="row" style={{ gap: 6 }}>

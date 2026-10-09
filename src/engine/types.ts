@@ -71,6 +71,10 @@ export interface SceneMeta {
   title: string;
   // Функция «Линии»: штрихи линий на этой панораме.
   strokes?: Stroke[];
+  // Толщина линий именно НА ЭТОЙ панораме (градусы обзора): одна и та же труба
+  // на разных сканах — на разном расстоянии. Нет значения — берётся общая
+  // толщина линии (LineDef.width) или 2.5° по умолчанию.
+  lineWidths?: Record<string, number>;
   width: number;
   height: number;
   order: number;
