@@ -8,6 +8,8 @@ import { downloadBlob, exportProjectZip, slugify } from "../export/bundle";
 import { exportProjectBackup } from "../export/backup";
 import { renderQrToCanvas } from "../qr";
 import PanoViewer from "../components/PanoViewer";
+import FolderBar from "../components/FolderBar";
+import { ensureFolderAccess, saveExportToFolder } from "../folderSync";
 import type { LineDef } from "../engine/types";
 import MapEditor from "../components/MapEditor";
 import { useEffect } from "react";
@@ -358,15 +360,24 @@ export default function Editor() {
 
   async function doExport() {
     setNote(null);
+    // Доступ к папке тура запрашиваем сразу, пока клик «свежий».
+    const folderOk = await ensureFolderAccess(projectId);
     setBusy(t("Собираю файлы тура…", "Assembling tour files…"));
     try {
       const { blob, filename } = await exportProjectZip(projectId);
+      // Архив для клиента — в подпапку export/ папки тура (если она привязана) и на скачивание.
+      const savedPath = folderOk ? await saveExportToFolder(projectId, blob, filename) : null;
       downloadBlob(blob, filename);
       setNote(
-        t(
-          `Готово: ${filename} скачан. Загрузите содержимое архива на любой статический хостинг (GitHub Pages, Netlify, Vercel) — и тур будет доступен по ссылке.`,
-          `Done: ${filename} downloaded. Upload the archive's contents to any static hosting (GitHub Pages, Netlify, Vercel) — and the tour will be available by link.`,
-        ),
+        savedPath
+          ? t(
+              `Готово: архив для клиента сохранён в папку тура (${savedPath}) и скачан. Загрузите содержимое архива на любой статический хостинг — и тур будет доступен по ссылке.`,
+              `Done: the client archive was saved to the tour folder (${savedPath}) and downloaded. Upload its contents to any static hosting — and the tour will be available by link.`,
+            )
+          : t(
+              `Готово: ${filename} скачан. Загрузите содержимое архива на любой статический хостинг (GitHub Pages, Netlify, Vercel) — и тур будет доступен по ссылке.`,
+              `Done: ${filename} downloaded. Upload the archive's contents to any static hosting (GitHub Pages, Netlify, Vercel) — and the tour will be available by link.`,
+            ),
       );
     } catch (e) {
       setNote(t(`Не удалось собрать экспорт: ${(e as Error).message}`, `Couldn't build the export: ${(e as Error).message}`));
@@ -452,6 +463,8 @@ export default function Editor() {
         style={{ fontWeight: 800, fontSize: 22, padding: "8px 10px", marginBottom: 14 }}
         aria-label={t("Название тура", "Tour name")}
       />
+
+      <FolderBar projectId={projectId} title={project?.title ?? ""} onNote={setNote} />
 
       {note && (
         <div className="card banner">

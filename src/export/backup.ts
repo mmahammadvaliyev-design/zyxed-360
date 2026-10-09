@@ -43,31 +43,47 @@ interface BackupManifest {
   hasMapImage?: boolean; // план объекта, если был — файл map.jpg в архиве
 }
 
-export async function exportProjectBackup(projectId: string): Promise<{ blob: Blob; filename: string }> {
+// Имя вложения безопасно для файловой системы (оно попадает в путь внутри архива
+// и папки тура, чтобы файлы можно было узнать глазами и открыть напрямую).
+function safeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "").trim().slice(0, 80) || "file";
+}
+
+export interface BackupEntry {
+  path: string;
+  blob: Blob;
+}
+
+// Всё, из чего состоит копия проекта: описание (backup.json) и файлы-Blob'ы.
+// Blob'ы не читаются в память — их потребитель (ZIP или запись в папку) берёт сам.
+export async function collectBackupEntries(
+  projectId: string,
+  allowEmpty = false,
+): Promise<{ title: string; manifest: Uint8Array; entries: BackupEntry[] }> {
   const project = await db.projects.get(projectId);
   if (!project) throw new Error("Проект не найден");
   const scenes = await db.scenes.where("projectId").equals(projectId).sortBy("order");
-  if (!scenes.length) throw new Error("В туре нет ни одной панорамы — копировать нечего.");
+  if (!scenes.length && !allowEmpty) throw new Error("В туре нет ни одной панорамы — копировать нечего.");
 
-  const files: Record<string, Uint8Array> = {};
+  const entries: BackupEntry[] = [];
   const backupScenes: BackupScene[] = [];
   for (const s of scenes) {
-    files[`images/${s.id}.jpg`] = new Uint8Array(await s.image.arrayBuffer());
-    files[`thumbs/${s.id}.jpg`] = new Uint8Array(await s.thumb.arrayBuffer());
+    entries.push({ path: `images/${s.id}.jpg`, blob: s.image });
+    entries.push({ path: `thumbs/${s.id}.jpg`, blob: s.thumb });
     const hotspots: BackupHotspot[] = [];
     for (const h of s.hotspots) {
       const { photo, pdfs, ...rest } = h;
       let photoRef: string | undefined;
       if (photo) {
         photoRef = `hotspotPhotos/${h.id}.jpg`;
-        files[photoRef] = new Uint8Array(await photo.arrayBuffer());
+        entries.push({ path: photoRef, blob: photo });
       }
       const pdfRefs: { name: string; ref?: string; href?: string }[] = [];
       for (const [i, p] of (pdfs ?? []).entries()) {
         if (p.href) { pdfRefs.push({ name: p.name, href: p.href }); continue; }
         if (!p.data) continue;
-        const ref = `hotspotFiles/${h.id}-${i}`;
-        files[ref] = new Uint8Array(await p.data.arrayBuffer());
+        const ref = `hotspotFiles/${h.id}-${i}-${safeFileName(p.name)}`;
+        entries.push({ path: ref, blob: p.data });
         pdfRefs.push({ name: p.name, ref });
       }
       hotspots.push({ ...rest, photoRef, pdfRefs: pdfRefs.length ? pdfRefs : undefined });
@@ -89,7 +105,7 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
     });
   }
 
-  if (project.mapImage) files["map.jpg"] = new Uint8Array(await project.mapImage.arrayBuffer());
+  if (project.mapImage) entries.push({ path: "map.jpg", blob: project.mapImage });
 
   const backupLines: BackupLine[] = [];
   for (const l of project.lines ?? []) {
@@ -97,7 +113,7 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
     let photoRef: string | undefined;
     if (photo) {
       photoRef = `lineFiles/${l.id}-photo`;
-      files[photoRef] = new Uint8Array(await photo.arrayBuffer());
+      entries.push({ path: photoRef, blob: photo });
     }
     const pdfRefs: { name: string; ref?: string; href?: string }[] = [];
     for (const [i, p] of (pdfs ?? []).entries()) {
@@ -106,8 +122,8 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
         continue;
       }
       if (!p.data) continue;
-      const ref = `lineFiles/${l.id}-${i}`;
-      files[ref] = new Uint8Array(await p.data.arrayBuffer());
+      const ref = `lineFiles/${l.id}-${i}-${safeFileName(p.name)}`;
+      entries.push({ path: ref, blob: p.data });
       pdfRefs.push({ name: p.name, ref });
     }
     backupLines.push({ ...rest, photoRef, pdfRefs: pdfRefs.length ? pdfRefs : undefined });
@@ -120,10 +136,16 @@ export async function exportProjectBackup(projectId: string): Promise<{ blob: Bl
     hasMapImage: !!project.mapImage,
     lines: backupLines.length ? backupLines : undefined,
   };
-  files["backup.json"] = new TextEncoder().encode(JSON.stringify(manifest));
+  return { title: project.title, manifest: new TextEncoder().encode(JSON.stringify(manifest)), entries };
+}
 
+export async function exportProjectBackup(projectId: string): Promise<{ blob: Blob; filename: string }> {
+  const { title, manifest, entries } = await collectBackupEntries(projectId);
+  const files: Record<string, Uint8Array> = {};
+  for (const e of entries) files[e.path] = new Uint8Array(await e.blob.arrayBuffer());
+  files["backup.json"] = manifest;
   const zipped = zipSync(files, { level: 6 });
-  return { blob: new Blob([zipped], { type: "application/zip" }), filename: `${slugify(project.title)}-backup.zip` };
+  return { blob: new Blob([zipped], { type: "application/zip" }), filename: `${slugify(title)}-backup.zip` };
 }
 
 // Импорт всегда создаёт новый проект с новыми id (даже если это тот же файл,

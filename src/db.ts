@@ -25,9 +25,30 @@ export interface Scene extends SceneMeta {
   thumb: Blob;
 }
 
+// Привязка тура к папке на диске (см. folderSync.ts). Сам handle — объект
+// браузера (File System Access API), IndexedDB умеет его хранить.
+export interface FolderLink {
+  projectId: string;
+  handle: FileSystemDirectoryHandle;
+  name: string;
+  linkedAt: string;
+}
+
+// Подписчики на изменения проекта (folderSync.ts ставит сюда пересборку копии
+// в папке) — отдельный список, а не импорт, чтобы db.ts не зависел от folderSync.
+const changeListeners: Array<(projectId: string) => void> = [];
+export function onProjectChanged(fn: (projectId: string) => void): void {
+  changeListeners.push(fn);
+}
+function notifyChanged(projectId: string | undefined): void {
+  if (!projectId) return;
+  for (const fn of changeListeners) fn(projectId);
+}
+
 class ZyxedDB extends Dexie {
   projects!: Table<Project, string>;
   scenes!: Table<Scene, string>;
+  folders!: Table<FolderLink, string>;
 
   constructor() {
     super("zyxed-360");
@@ -35,6 +56,16 @@ class ZyxedDB extends Dexie {
       projects: "id, updatedAt",
       scenes: "id, projectId, order",
     });
+    this.version(2).stores({
+      projects: "id, updatedAt",
+      scenes: "id, projectId, order",
+      folders: "projectId",
+    });
+    this.scenes.hook("creating", (_pk, obj) => { notifyChanged(obj.projectId); });
+    this.scenes.hook("updating", (_mods, _pk, obj) => { notifyChanged(obj.projectId); });
+    this.scenes.hook("deleting", (_pk, obj) => { notifyChanged(obj.projectId); });
+    this.projects.hook("creating", (_pk, obj) => { notifyChanged(obj.id); });
+    this.projects.hook("updating", (_mods, pk) => { notifyChanged(String(pk)); });
   }
 }
 
@@ -72,9 +103,10 @@ export async function uniqueProjectTitle(base: string, excludeId?: string): Prom
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  await db.transaction("rw", db.projects, db.scenes, async () => {
+  await db.transaction("rw", db.projects, db.scenes, db.folders, async () => {
     await db.scenes.where("projectId").equals(id).delete();
     await db.projects.delete(id);
+    await db.folders.delete(id); // файлы в самой папке на диске не удаляем — только связь
   });
 }
 

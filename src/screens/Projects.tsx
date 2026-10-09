@@ -3,8 +3,41 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
 import { createProject, db, deleteProject, duplicateProject, uniqueProjectTitle, type Project, type Scene } from "../db";
 import { importProjectBackup } from "../export/backup";
+import { chooseFolderForProject, createTourFolder, FOLDER_SUPPORTED, forgetLink, linkProjectToFolder, pickFolder, useFolderStatus } from "../folderSync";
 import { useFeature } from "../features";
 import { useT } from "../i18n";
+
+// Привязка тура к папке на диске: значок состояния или кнопка «Переместить в папку».
+function FolderControls({ project, onBusy, onNote }: { project: Project; onBusy: (msg: string | null) => void; onNote: (msg: string) => void }) {
+  const t = useT();
+  const st = useFolderStatus(project.id);
+  if (!FOLDER_SUPPORTED) return null;
+  if (st.linked) {
+    const mark = st.state === "synced" ? "✓" : st.state === "syncing" ? "…" : st.state === "needs-permission" ? "⚠" : st.state === "error" ? "✕" : "";
+    return (
+      <div className="muted" style={{ marginTop: 6 }} title={st.error ?? undefined}>
+        📁 {st.folderName} {mark}
+        {st.state === "needs-permission" && <> · {t("нужно разрешение (откройте тур)", "permission needed (open the tour)")}</>}
+      </div>
+    );
+  }
+  async function move() {
+    try {
+      onBusy(t("Выберите папку…", "Choose a folder…"));
+      const r = await chooseFolderForProject(project.id, project.title);
+      if (r === "linked") onNote(t(`Тур «${project.title}» перенесён в папку — теперь копия обновляется автоматически.`, `Tour "${project.title}" moved to a folder — the copy now updates automatically.`));
+    } catch (e) {
+      onNote(t(`Не удалось привязать папку: ${(e as Error).message}`, `Couldn't link the folder: ${(e as Error).message}`));
+    } finally {
+      onBusy(null);
+    }
+  }
+  return (
+    <button className="ghost small" style={{ marginTop: 6 }} onClick={move} title={t("Переместить в папку на диске", "Move to a folder on disk")}>
+      📁 {t("В папку", "To a folder")}
+    </button>
+  );
+}
 
 // Название тура — обязательное и уникальное (см. uniqueProjectTitle в db.ts).
 // Локальный черновик, чтобы не писать в БД на каждое нажатие клавиши и не
@@ -78,14 +111,32 @@ export default function Projects() {
   for (const s of firstScenes ?? []) countByProject.set(s.projectId, (countByProject.get(s.projectId) ?? 0) + 1);
 
   async function newProject() {
+    // Папка тура: пока клик свежий (браузер показывает выбор папки только по
+    // жесту пользователя), спрашиваем, где создать тур. Отмена — тур без папки.
+    let parent: FileSystemDirectoryHandle | null = null;
+    if (FOLDER_SUPPORTED) {
+      try {
+        parent = await pickFolder();
+      } catch (e) {
+        setNote(t(`Не удалось открыть выбор папки: ${(e as Error).message}`, `Couldn't open the folder picker: ${(e as Error).message}`));
+      }
+    }
     const title = await uniqueProjectTitle(t("Новый тур", "New tour"));
     const p = await createProject(title);
+    if (parent) {
+      try {
+        await linkProjectToFolder(p.id, await createTourFolder(parent, title));
+      } catch (e) {
+        console.error("Не удалось создать папку тура", e);
+      }
+    }
     nav(`/p/${p.id}`);
   }
 
   async function remove(p: Project) {
     if (!window.confirm(t(`Удалить тур «${p.title}» со всеми панорамами? Это необратимо.`, `Delete the tour "${p.title}" and all its panoramas? This can't be undone.`))) return;
     await deleteProject(p.id);
+    await forgetLink(p.id);
   }
 
   async function duplicate(p: Project) {
@@ -131,6 +182,14 @@ export default function Projects() {
       <button className="primary" style={{ width: "100%" }} disabled={!!busy} onClick={newProject}>
         {t("+ Новый тур", "+ New tour")}
       </button>
+      {FOLDER_SUPPORTED && (
+        <p className="muted" style={{ margin: "8px 2px 0", lineHeight: 1.45, fontSize: 12 }}>
+          {t(
+            "По кнопке откроется выбор папки: внутри неё создастся подпапка тура, и все данные будут автоматически сохраняться туда. Отмена — тур без папки.",
+            "The button opens a folder picker: a tour subfolder is created inside it and all data is saved there automatically. Cancel — a tour without a folder.",
+          )}
+        </p>
+      )}
       {projectBackup && (
         <>
           <button className="ghost" style={{ width: "100%", marginTop: 8 }} disabled={!!busy} onClick={() => backupRef.current?.click()}>
@@ -167,6 +226,7 @@ export default function Projects() {
               <div className="grow">
                 <ProjectTitleInput project={p} onError={setNote} />
                 <div className="muted" style={{ marginTop: 6 }}>{countByProject.get(p.id) ?? 0} {t("панорам", "panoramas")}</div>
+                <FolderControls project={p} onBusy={setBusy} onNote={setNote} />
                 <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
                   <button className="ghost small grow" onClick={() => nav(`/p/${p.id}`)}>{t("Открыть", "Open")}</button>
                   <button className="ghost small" onClick={() => duplicate(p)} title={t("Дублировать", "Duplicate")}>⧉</button>
