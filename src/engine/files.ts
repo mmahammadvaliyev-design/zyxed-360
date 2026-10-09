@@ -48,6 +48,11 @@ export function mimeForName(name: string): string {
   return fileExt(name) === "pdf" ? "application/pdf" : "application/octet-stream";
 }
 
+// FBX приложение само переводит в GLB при прикреплении (viewer3d: convertFbx).
+export function isFbx(name: string): boolean {
+  return fileExt(name) === "fbx";
+}
+
 // Что можно показать прямо в туре — только самодостаточный .glb (у .gltf
 // модель лежит в нескольких файлах, а мы принимаем один).
 export function isViewable3d(name: string): boolean {
@@ -76,6 +81,8 @@ export interface Viewer3dApi {
     onReady?: () => void,
     opts?: { lang?: "ru" | "en" },
   ): { dispose(): void };
+  // FBX → GLB (единицы приводятся к метрам). Нужен только в редакторе.
+  convertFbx(data: ArrayBuffer): Promise<{ glb: ArrayBuffer; info: { meshes: number; tris: number; sizeM: [number, number, number] } }>;
 }
 declare global {
   interface Window {

@@ -17,7 +17,7 @@ import {
   type View,
 } from "../engine/pano";
 import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
-import { ATTACHMENT_MAX_BYTES, checkAttachment, describeModelError, fileIcon, isViewable3d, normalizeHref } from "../engine/files";
+import { ATTACHMENT_MAX_BYTES, checkAttachment, describeModelError, fileIcon, isFbx, isViewable3d, normalizeHref } from "../engine/files";
 import { loadViewer3d } from "../viewer3dLoader";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
 import { useFeature } from "../features";
@@ -157,6 +157,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   linesVisibleRef.current = linesVisible;
   const editRef = useRef(edit);
   editRef.current = edit;
+  const updateHotspotRef = useRef<(id: string, patch: Partial<Hotspot>) => void>(() => {});
+  const updateLineRef = useRef<(id: string, patch: Partial<LineDef>) => void>(() => {});
   const noteHotspotRef = useRef(noteHotspot);
   noteHotspotRef.current = noteHotspot;
   const placingRef = useRef(placing);
@@ -822,10 +824,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (!file) return;
     updateLine(id, { photo: await prepareHotspotPhoto(file) });
   }
-  function addLineFiles(id: string, files: FileList | null) {
-    const added = collectAttachments(files);
+  async function addLineFiles(id: string, files: FileList | null) {
+    const added = await collectAttachments(files);
     if (!added.length) return;
-    updateLine(id, { pdfs: [...(lines.find((l) => l.id === id)?.pdfs ?? []), ...added] });
+    // после перевода FBX прошло время — берём свежие данные, а не замыкание
+    updateLineRef.current(id, { pdfs: [...(linesRef.current.find((l) => l.id === id)?.pdfs ?? []), ...added] });
   }
   function addLineLink(id: string) {
     const link = promptLink();
@@ -921,7 +924,27 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   // Вложения заметки (PDF, DWG, 3D-модели — любой файл): можно прикрепить
   // несколько, каждый скачивается отдельной кнопкой на карточке.
-  function collectAttachments(files: FileList | null): NotePdf[] {
+  // FBX → GLB: приложение само переводит модель (единицы — в метры), чтобы её
+  // можно было смотреть в туре. Если перевод не удался — файл прикрепляется как есть.
+  async function convertFbxAttachment(file: File): Promise<NotePdf | null> {
+    flash(t(`Перевожу «${file.name}» в GLB…`, `Converting "${file.name}" to GLB…`));
+    try {
+      const api = await loadViewer3d();
+      const r = await api.convertFbx(await file.arrayBuffer());
+      if (r.glb.byteLength > ATTACHMENT_MAX_BYTES) {
+        flash(t(`«${file.name}» после перевода в GLB больше ${Math.round(ATTACHMENT_MAX_BYTES / 1048576)} МБ — прикреплён как обычный файл`, `"${file.name}" is over ${Math.round(ATTACHMENT_MAX_BYTES / 1048576)} MB as GLB — attached as a regular file`));
+        return null;
+      }
+      const mb = (n: number) => (n / 1048576).toFixed(1);
+      const [x, y, z] = r.info.sizeM.map((v) => v.toFixed(1));
+      flash(t(`FBX → GLB: ${r.info.meshes} дет., ${x}×${y}×${z} м, ${mb(file.size)} → ${mb(r.glb.byteLength)} МБ`, `FBX → GLB: ${r.info.meshes} parts, ${x}×${y}×${z} m, ${mb(file.size)} → ${mb(r.glb.byteLength)} MB`));
+      return { name: file.name.replace(/\.fbx$/i, ".glb"), data: new Blob([r.glb], { type: "model/gltf-binary" }) };
+    } catch {
+      flash(t(`Не удалось перевести «${file.name}» в GLB — прикреплён как обычный файл (скачивается, но в туре не показывается)`, `Couldn't convert "${file.name}" to GLB — attached as a regular file (downloadable, not viewable in the tour)`));
+      return null;
+    }
+  }
+  async function collectAttachments(files: FileList | null): Promise<NotePdf[]> {
     const added: NotePdf[] = [];
     if (!files?.length) return added;
     for (const file of Array.from(files)) {
@@ -933,15 +956,21 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         flash(t(`«${file.name}» больше ${mb} МБ — заархивируйте или сожмите`, `"${file.name}" is over ${mb} MB — zip or compress it`));
         continue;
       }
+      if (isFbx(file.name)) {
+        const converted = await convertFbxAttachment(file);
+        if (converted) { added.push(converted); continue; }
+      }
       added.push({ name: file.name, data: file });
     }
     return added;
   }
-  function addNotePdfs(hotspotId: string, files: FileList | null) {
-    const added = collectAttachments(files);
+  async function addNotePdfs(hotspotId: string, files: FileList | null) {
+    const added = await collectAttachments(files);
     if (!added.length) return;
-    const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
-    updateHotspot(hotspotId, { pdfs: [...current, ...added] });
+    // после перевода FBX прошло время — берём свежие данные, а не замыкание
+    const sc = scenesRef.current.find((x) => x.id === currentIdRef.current);
+    const current = sc?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
+    updateHotspotRef.current(hotspotId, { pdfs: [...current, ...added] });
   }
   function removeNotePdf(hotspotId: string, index: number) {
     const current = scene?.hotspots.find((x) => x.id === hotspotId)?.pdfs ?? [];
@@ -1033,6 +1062,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     );
   }
 
+  updateHotspotRef.current = updateHotspot;
+  updateLineRef.current = updateLine;
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
   const activeLine = lines.find((l) => l.id === activeLineId) ?? null;
   const showLinesTab = editTab === "lines" && linesEnabled && !!onLinesChange;

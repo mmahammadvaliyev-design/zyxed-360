@@ -17,6 +17,7 @@ import {
   LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   PMREMGenerator,
@@ -30,6 +31,8 @@ import {
   type Texture,
 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
@@ -359,4 +362,62 @@ function mount(
   };
 }
 
-(window as unknown as { Zyxed3D: unknown }).Zyxed3D = { mount };
+// ── FBX → GLB ────────────────────────────────────────────────────────────
+// Нужен редактору: пользователь прикрепляет FBX (из Navisworks/Plant 3D и т.п.),
+// а в туре показывается только GLB. Единицы приводятся к метрам по
+// UnitScaleFactor из файла (1 = сантиметры, 100 = метры): GLB по спецификации
+// в метрах, а замер в просмотрщике считает именно так. Материалы FBX
+// (Phong/Lambert) переводятся в стандартные — иначе цвет теряется при экспорте.
+function toStandardMaterials(root: Object3D) {
+  root.traverse((o) => {
+    const m = o as Mesh;
+    if (!(m as unknown as { isMesh?: boolean }).isMesh) return;
+    const conv = (mat: Material): Material => {
+      const a = mat as unknown as { isMeshStandardMaterial?: boolean; color?: { clone(): unknown }; map?: Texture | null; opacity?: number; transparent?: boolean; side?: number; name?: string };
+      if (a.isMeshStandardMaterial) return mat;
+      const s = new MeshStandardMaterial({
+        color: (a.color ?? 0xcccccc) as never,
+        map: a.map ?? null,
+        opacity: a.opacity ?? 1,
+        transparent: !!a.transparent,
+        side: (a.side ?? 0) as never,
+        roughness: 0.65,
+        metalness: 0.1,
+      });
+      s.name = a.name ?? "";
+      mat.dispose();
+      return s;
+    };
+    m.material = Array.isArray(m.material) ? m.material.map(conv) : conv(m.material);
+  });
+}
+
+async function convertFbx(
+  data: ArrayBuffer,
+): Promise<{ glb: ArrayBuffer; info: { meshes: number; tris: number; sizeM: [number, number, number] } }> {
+  const root = new FBXLoader().parse(data, "");
+  const unit = (root.userData as { unitScaleFactor?: number }).unitScaleFactor;
+  if (typeof unit === "number" && unit > 0) root.scale.multiplyScalar(unit * 0.01);
+  root.updateMatrixWorld(true);
+  toStandardMaterials(root);
+  let meshes = 0;
+  let tris = 0;
+  root.traverse((o) => {
+    const m = o as Mesh;
+    if ((m as unknown as { isMesh?: boolean }).isMesh) {
+      meshes++;
+      const g = m.geometry;
+      tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    }
+  });
+  if (!meshes) throw new Error("В файле нет геометрии");
+  const box = new Box3().setFromObject(root);
+  const size = box.getSize(new Vector3());
+  const glb = await new Promise<ArrayBuffer>((resolve, reject) =>
+    new GLTFExporter().parse(root, (r) => resolve(r as ArrayBuffer), (e) => reject(e), { binary: true, maxTextureSize: 2048 }),
+  );
+  disposeObject(root);
+  return { glb, info: { meshes, tris: Math.round(tris), sizeM: [size.x, size.y, size.z] } };
+}
+
+(window as unknown as { Zyxed3D: unknown }).Zyxed3D = { mount, convertFbx };
