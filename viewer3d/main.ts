@@ -21,6 +21,7 @@ import {
   Object3D,
   PerspectiveCamera,
   PMREMGenerator,
+  Quaternion,
   Raycaster,
   Scene,
   SphereGeometry,
@@ -45,12 +46,18 @@ interface MountOptions {
 }
 
 const STR = {
-  ru: { measure: "📏 Замер", reset: "↺ Сброс", units: "Ед.", tipOn: "Нажмите две точки на модели", tipOff: "", m: "м", mm: "мм" },
-  en: { measure: "📏 Measure", reset: "↺ Reset", units: "Units", tipOn: "Tap two points on the model", tipOff: "", m: "m", mm: "mm" },
+  ru: { measure: "📏 Замер", reset: "↺ Сброс", show: "Показ", modelIn: "Модель в", auto: "авто", scaleTitle: "Масштаб модели — если размеры сильно не те", tipOn: "Нажмите две точки на модели", tipOff: "", m: "м", cm: "см", mm: "мм" },
+  en: { measure: "📏 Measure", reset: "↺ Reset", show: "Show", modelIn: "Model in", auto: "auto", scaleTitle: "Model scale — if the sizes are way off", tipOn: "Tap two points on the model", tipOff: "", m: "m", cm: "cm", mm: "mm" },
 };
 
-// Единицы модели → метры. По спецификации glTF единица — метр, но модели,
-// сконвертированные из CAD/Navisworks, нередко остаются в см или мм.
+// В чём показывать результат замера: «авто» — как удобнее по величине (мм до 1 м,
+// иначе м); остальное — всегда в выбранных единицах.
+type DisplayUnit = "auto" | "m" | "cm" | "mm";
+const DISPLAY_UNITS: DisplayUnit[] = ["auto", "m", "cm", "mm"];
+
+// Масштаб модели (единицы модели → метры). По спецификации glTF единица — метр
+// (FBX приложение переводит в метры само), но чужие GLB иногда остаются в см или
+// мм — для таких есть отдельная настройка за кнопкой ⚙.
 const UNITS: { ru: string; en: string; toMeters: number }[] = [
   { ru: "м", en: "m", toMeters: 1 },
   { ru: "см", en: "cm", toMeters: 0.01 },
@@ -89,9 +96,13 @@ function disposeObject(root: Object3D) {
   });
 }
 
-function formatLength(meters: number, lang: "ru" | "en"): string {
+function formatLength(meters: number, lang: "ru" | "en", unit: DisplayUnit): string {
   const s = STR[lang];
-  if (meters < 1) return `${(meters * 1000).toFixed(meters < 0.1 ? 1 : 0)} ${s.mm}`;
+  const mm = meters * 1000;
+  if (unit === "mm") return `${mm.toFixed(mm < 100 ? 1 : 0)} ${s.mm}`;
+  if (unit === "cm") return `${(meters * 100).toFixed(1)} ${s.cm}`;
+  if (unit === "m") return `${meters.toFixed(3)} ${s.m}`;
+  if (meters < 1) return `${mm.toFixed(meters < 0.1 ? 1 : 0)} ${s.mm}`;
   return `${meters.toFixed(meters < 100 ? 2 : 1)} ${s.m}`;
 }
 
@@ -140,6 +151,7 @@ function mount(
   let pending: { point: Vector3; marker: Mesh } | null = null;
   let measureOn = false;
   let toMeters = 1;
+  let displayUnit: DisplayUnit = "auto";
   const raycaster = new Raycaster();
 
   const lineMat = new LineBasicMaterial({ color: 0xffd34e, depthTest: false, transparent: true });
@@ -187,7 +199,7 @@ function mount(
     measureGroup.add(line);
     const label = document.createElement("div");
     label.className = "z3d-label";
-    label.textContent = formatLength(a.distanceTo(p) * toMeters, lang);
+    label.textContent = formatLength(a.distanceTo(p) * toMeters, lang, displayUnit);
     container.appendChild(label);
     measurements.push({ a, b: p, label });
     pending = null;
@@ -208,7 +220,7 @@ function mount(
       m.label.style.display = "";
       m.label.style.left = `${(tmp.x * 0.5 + 0.5) * w}px`;
       m.label.style.top = `${(-tmp.y * 0.5 + 0.5) * h}px`;
-      m.label.textContent = formatLength(m.a.distanceTo(m.b) * toMeters, lang);
+      m.label.textContent = formatLength(m.a.distanceTo(m.b) * toMeters, lang, displayUnit);
     }
   };
 
@@ -222,19 +234,36 @@ function mount(
   btnReset.className = "z3d-btn";
   btnReset.textContent = S.reset;
   btnReset.hidden = true;
+  // «Показ»: в чём выводить результат (авто / м / см / мм).
   const unitSelect = document.createElement("select");
   unitSelect.className = "z3d-select";
-  unitSelect.title = S.units;
-  UNITS.forEach((u, i) => {
+  unitSelect.title = S.show;
+  DISPLAY_UNITS.forEach((u) => {
     const o = document.createElement("option");
-    o.value = String(i);
-    o.textContent = `${S.units}: ${lang === "en" ? u.en : u.ru}`;
+    o.value = u;
+    o.textContent = `${S.show}: ${u === "auto" ? S.auto : S[u]}`;
     unitSelect.appendChild(o);
   });
   unitSelect.hidden = true;
+  // «⚙»: масштаб модели — для моделей, где размеры сильно не те (см/мм вместо метров).
+  const btnScale = document.createElement("button");
+  btnScale.className = "z3d-btn";
+  btnScale.textContent = "⚙";
+  btnScale.title = S.scaleTitle;
+  btnScale.hidden = true;
+  const scaleSelect = document.createElement("select");
+  scaleSelect.className = "z3d-select";
+  scaleSelect.title = S.scaleTitle;
+  UNITS.forEach((u, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `${S.modelIn}: ${lang === "en" ? u.en : u.ru}`;
+    scaleSelect.appendChild(o);
+  });
+  scaleSelect.hidden = true;
   const tip = document.createElement("span");
   tip.className = "z3d-tip";
-  bar.append(btnMeasure, btnReset, unitSelect, tip);
+  bar.append(btnMeasure, btnReset, unitSelect, btnScale, scaleSelect, tip);
   container.appendChild(bar);
 
   btnMeasure.addEventListener("click", () => {
@@ -243,12 +272,24 @@ function mount(
     container.classList.toggle("z3d-measuring", measureOn);
     btnReset.hidden = !measureOn;
     unitSelect.hidden = !measureOn;
+    btnScale.hidden = !measureOn;
+    if (!measureOn) scaleSelect.hidden = true;
     tip.textContent = measureOn ? S.tipOn : S.tipOff;
     if (!measureOn) clearMeasurements();
   });
   btnReset.addEventListener("click", clearMeasurements);
+  // Подписи обновляем сразу при выборе, не дожидаясь следующего кадра.
   unitSelect.addEventListener("change", () => {
-    toMeters = UNITS[Number(unitSelect.value)]?.toMeters ?? 1;
+    displayUnit = (unitSelect.value as DisplayUnit) || "auto";
+    updateLabels();
+  });
+  btnScale.addEventListener("click", () => {
+    scaleSelect.hidden = !scaleSelect.hidden;
+    btnScale.classList.toggle("on", !scaleSelect.hidden);
+  });
+  scaleSelect.addEventListener("change", () => {
+    toMeters = UNITS[Number(scaleSelect.value)]?.toMeters ?? 1;
+    updateLabels();
   });
 
   // Тап (а не перетаскивание/щипок) по модели в режиме замера — ставит точку.
@@ -392,12 +433,62 @@ function toStandardMaterials(root: Object3D) {
   });
 }
 
+// Ось «вверх», записанная в FBX (GlobalSettings: UpAxis 0/1/2 = X/Y/Z и UpAxisSign).
+// CAD (Plant 3D, Navisworks, Revit, 3ds Max) обычно Z-up, а glTF и наш
+// просмотрщик — Y-up; FBXLoader оси не пересчитывает, поэтому без поворота
+// модель оказывалась лежащей на боку. Читаем напрямую из байтов файла —
+// и для бинарного, и для текстового FBX.
+function readFbxUp(data: ArrayBuffer): { axis: number; sign: number } | null {
+  const b = new Uint8Array(data);
+  const dv = new DataView(data);
+  const find = (needle: Uint8Array, from = 0): number => {
+    outer: for (let i = from; i <= b.length - needle.length; i++) {
+      for (let k = 0; k < needle.length; k++) if (b[i + k] !== needle[k]) continue outer;
+      return i;
+    }
+    return -1;
+  };
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const isBinary = new TextDecoder("latin1").decode(b.subarray(0, 20)).startsWith("Kaydara FBX Binary");
+  const readProp = (name: string): number | null => {
+    if (isBinary) {
+      // свойство P: строки name,type,label,flags (каждая: 'S' + uint32 длина + байты), затем 'I' + int32
+      const key = enc(name);
+      const needle = new Uint8Array(1 + 4 + key.length);
+      needle[0] = 0x53;
+      new DataView(needle.buffer).setUint32(1, key.length, true);
+      needle.set(key, 5);
+      let p = find(needle);
+      if (p < 0) return null;
+      for (let s = 0; s < 4; s++) {
+        if (b[p] !== 0x53) return null;
+        p += 1 + 4 + dv.getUint32(p + 1, true);
+      }
+      return b[p] === 0x49 ? dv.getInt32(p + 1, true) : null;
+    }
+    const text = new TextDecoder("latin1").decode(b.subarray(0, Math.min(b.length, 200000)));
+    const m = new RegExp(`"${name}"\\s*,\\s*"int"\\s*,\\s*"Integer"\\s*,\\s*"[^"]*"\\s*,\\s*(-?\\d+)`).exec(text);
+    return m ? Number(m[1]) : null;
+  };
+  const axis = readProp("UpAxis");
+  if (axis === null || axis < 0 || axis > 2) return null;
+  const sign = readProp("UpAxisSign");
+  return { axis, sign: sign === -1 ? -1 : 1 };
+}
+
 async function convertFbx(
   data: ArrayBuffer,
 ): Promise<{ glb: ArrayBuffer; info: { meshes: number; tris: number; sizeM: [number, number, number] } }> {
   const root = new FBXLoader().parse(data, "");
   const unit = (root.userData as { unitScaleFactor?: number }).unitScaleFactor;
   if (typeof unit === "number" && unit > 0) root.scale.multiplyScalar(unit * 0.01);
+  // Ось «вверх» → +Y (для Z-up: поворот −90° вокруг X).
+  const up = readFbxUp(data);
+  if (up && !(up.axis === 1 && up.sign === 1)) {
+    const v = new Vector3(0, 0, 0);
+    v.setComponent(up.axis, up.sign);
+    root.quaternion.premultiply(new Quaternion().setFromUnitVectors(v, new Vector3(0, 1, 0)));
+  }
   root.updateMatrixWorld(true);
   toStandardMaterials(root);
   let meshes = 0;
