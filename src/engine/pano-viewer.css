@@ -435,3 +435,13 @@
 }
 .pano-note-title { cursor: grab; touch-action: none; user-select: none; }
 .pano-note-title:active { cursor: grabbing; }
+
+/* Скрытые переходы: маркер не виден, но кнопка остаётся на месте и кликабельна;
+   мышь при наведении показывает его бледно. В правке скрытые — полупрозрачные. */
+.pano-spot.stealth { opacity: 0; transition: opacity 0.15s; }
+.pano-spot.stealth:hover { opacity: 0.55; }
+.pano-spot.ghost { opacity: 0.45; }
+
+/* Вкладки меню правки: «Переходы и заметки» / «Трубы (линии)». */
+.pano-edit-tabs { display: flex; gap: 6px; }
+.pano-edit-tabs .pano-btn { flex: 1; }

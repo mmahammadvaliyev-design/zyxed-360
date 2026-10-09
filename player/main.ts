@@ -36,6 +36,7 @@ app.innerHTML = `
       <div class="pano-title"><b id="title"></b><span class="pano-sub" id="sub"></span></div>
       <div class="pano-tools">
         <button class="pano-btn" id="btn-slideshow" title="Автотур (слайд-шоу)" hidden>▶</button>
+        <button class="pano-btn on" id="btn-spots" title="Скрыть переходы (они останутся кликабельными)" hidden>◎</button>
         <button class="pano-btn on" id="btn-lines" title="Скрыть линии" hidden>〰</button>
         <button class="pano-btn" id="btn-rotate" title="Автоповорот">↻</button>
         <button class="pano-btn" id="btn-gyro" title="Поворот по наклону телефона" hidden>🧭</button>
@@ -73,6 +74,7 @@ const toastEl = document.getElementById("toast")!;
 const btnSlideshow = document.getElementById("btn-slideshow") as HTMLButtonElement;
 const btnRotate = document.getElementById("btn-rotate") as HTMLButtonElement;
 const btnLines = document.getElementById("btn-lines") as HTMLButtonElement;
+const btnSpots = document.getElementById("btn-spots") as HTMLButtonElement;
 const btnGyro = document.getElementById("btn-gyro") as HTMLButtonElement;
 const btnFs = document.getElementById("btn-fs") as HTMLButtonElement;
 const mapMini = document.getElementById("map-mini") as HTMLButtonElement;
@@ -143,6 +145,13 @@ function currentScene(): SceneMeta | undefined {
 // Функция «Линии»: легенда — линии, проходящие через текущую панораму; нажатие
 // подсвечивает линию (остальные приглушаются), повторное — снимает подсветку.
 let focusLineId: string | null = null;
+// Скрытые переходы: маркер не виден, но кликабельная зона остаётся.
+let spotsHidden = false;
+function applySpotVisibility() {
+  for (const h of currentScene()?.hotspots ?? []) {
+    hotspotEls.get(h.id)?.classList.toggle("stealth", !!h.targetId && (spotsHidden || !!h.hidden));
+  }
+}
 let linesVisible = true;
 
 // Документация линии показывается тем же окном, что и заметка: собираем
@@ -211,7 +220,7 @@ function renderHotspots(scene: SceneMeta) {
   hotspotEls.clear();
   for (const h of scene.hotspots) {
     const btn = document.createElement("button");
-    btn.className = `pano-spot${h.targetId ? "" : " note"}`;
+    btn.className = `pano-spot${h.targetId ? "" : " note"}${h.targetId && (spotsHidden || h.hidden) ? " stealth" : ""}`;
     btn.dataset.hud = "1";
     btn.dataset.spot = h.id;
     btn.style.visibility = "hidden";
@@ -672,6 +681,13 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("keyup", (e) => keys.delete(e.key));
 
+btnSpots.addEventListener("click", () => {
+  spotsHidden = !spotsHidden;
+  btnSpots.classList.toggle("on", !spotsHidden);
+  btnSpots.title = spotsHidden ? "Показать переходы" : "Скрыть переходы (они останутся кликабельными)";
+  applySpotVisibility();
+});
+
 btnLines.addEventListener("click", () => {
   linesVisible = !linesVisible;
   btnLines.classList.toggle("on", linesVisible);
@@ -856,6 +872,7 @@ function startTour(data: TourManifest) {
   topBar.hidden = false;
   if (manifest.features?.slideshow && scenes.length > 1) btnSlideshow.hidden = false;
   if (manifest.features?.lines && manifest.lines?.length) btnLines.hidden = false;
+  if (scenes.some((sc) => sc.hotspots.some((h) => h.targetId))) btnSpots.hidden = false;
   lang = manifest.lang === "en" ? "en" : "ru";
   // Функция «Карта тура»: план — только если был загружен и функция была
   // включена на момент экспорта (manifest.mapImage, см. bundle.ts).

@@ -54,6 +54,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   // выбранная линия, подсвеченная в легенде линия. Черновик штриха живёт в
   // реф (его читает рендер-цикл каждый кадр), draftCount — только для кнопок.
   const linesEnabled = useFeature("lines");
+  // Меню правки разделено на две вкладки: «Переходы и заметки» и «Трубы (линии)».
+  const [editTab, setEditTab] = useState<"spots" | "lines">("spots");
+  // Быстрое скрытие маркеров переходов в просмотре (кликабельность остаётся).
+  const [spotsHidden, setSpotsHidden] = useState(false);
   const [lineMode, setLineMode] = useState<null | "points" | "free">(null);
   const [activeLineId, setActiveLineId] = useState<string | null>(null);
   const [focusLineId, setFocusLineId] = useState<string | null>(null);
@@ -540,7 +544,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         // Повторное нажатие на ту же линию закрывает её окно.
         if (def && lineHasDocs(def)) { if (noteHotspotRef.current?.id === `line:${hitId}`) setNoteHotspot(null); else openLineCard(hitId); }
         else if (def) { setNoteHotspot(null); flash(def.name); } // документации нет — закрываем старую карточку и называем линию
-        if (editRef.current) setActiveLineId(hitId);
+        if (editRef.current) { setActiveLineId(hitId); setEditTab("lines"); }
         return;
       }
     }
@@ -730,6 +734,13 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const basis = basisFor(viewRef.current, rect.width, rect.height);
     return unproject(clientX - rect.left, clientY - rect.top, basis, rect.width, rect.height);
   }
+  function switchEditTab(tab: "spots" | "lines") {
+    if (tab === editTab) return;
+    exitLineMode();
+    setSelectedId(null);
+    setPlacing(null);
+    setEditTab(tab);
+  }
   function exitLineMode() {
     freeDrawRef.current = null;
     draftRef.current = [];
@@ -892,7 +903,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   goToRef.current = goTo;
 
   function activateHotspot(h: Hotspot) {
-    if (edit) { setSelectedId(h.id); return; }
+    if (edit) { setSelectedId(h.id); setEditTab("spots"); return; }
     if (h.targetId && scenes.some((s) => s.id === h.targetId)) { goTo(h.targetId); return; }
     if (richNotes && (h.note?.trim() || h.photo || h.pdfs?.length)) { setNoteHotspot(noteHotspotRef.current?.id === h.id ? null : h); return; }
     flash(h.label);
@@ -1020,6 +1031,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
   const activeLine = lines.find((l) => l.id === activeLineId) ?? null;
+  const showLinesTab = editTab === "lines" && linesEnabled && !!onLinesChange;
   const sceneLineIds = lines.filter((l) => scene?.strokes?.some((st) => st.lineId === l.id)).map((l) => l.id);
 
   if (!scene) return null;
@@ -1041,7 +1053,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           key={h.id}
           data-hud
           data-spot={h.id}
-          className={`pano-spot${selectedId === h.id ? " sel" : ""}${h.targetId ? "" : " note"}`}
+          className={`pano-spot${selectedId === h.id ? " sel" : ""}${h.targetId ? "" : " note"}${h.targetId && !edit && (spotsHidden || h.hidden) ? " stealth" : ""}${h.targetId && edit && h.hidden ? " ghost" : ""}`}
           ref={(el) => {
             if (el) hotspotEls.current.set(h.id, el);
             else hotspotEls.current.delete(h.id);
@@ -1067,6 +1079,9 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
         <div className="pano-tools">
           {slideshowEnabled && scenes.length > 1 && (
             <button className={`pano-btn${slideshow ? " on" : ""}`} onClick={() => setSlideshow(!slideshow)} title={t("Автотур (слайд-шоу)", "Auto tour (slideshow)")}>▶</button>
+          )}
+          {scene.hotspots.some((h) => h.targetId) && (
+            <button className={`pano-btn${spotsHidden ? "" : " on"}`} onClick={() => setSpotsHidden(!spotsHidden)} title={spotsHidden ? t("Показать переходы", "Show transitions") : t("Скрыть переходы (они останутся кликабельными)", "Hide transitions (they stay clickable)")}>◎</button>
           )}
           {linesEnabled && lines.length > 0 && (
             <button className={`pano-btn${linesVisible ? " on" : ""}`} onClick={() => setLinesVisible(!linesVisible)} title={linesVisible ? t("Скрыть линии (зоны остаются кликабельными)", "Hide lines (their zones stay clickable)") : t("Показать линии", "Show lines")}>〰</button>
@@ -1114,106 +1129,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
       {edit && editable && (
         <div className={`pano-edit${adjustingWidth ? " dim" : ""}`} data-hud onPointerDown={(e) => e.stopPropagation()}>
-          {selected ? (
+          {linesEnabled && !!onLinesChange && (
+            <div className="pano-edit-tabs">
+              <button className={`pano-btn${editTab === "spots" ? " on" : ""}`} onClick={() => switchEditTab("spots")}>◎ {t("Переходы и заметки", "Transitions & notes")}</button>
+              <button className={`pano-btn${editTab === "lines" ? " on" : ""}`} onClick={() => switchEditTab("lines")}>〰 {t("Трубы (линии)", "Pipes (lines)")}</button>
+            </div>
+          )}
+          {showLinesTab ? (
             <>
-              <div className="row" style={{ gap: 6 }}>
-                <input className="pano-input grow" value={selected.label} onChange={(e) => updateHotspot(selected.id, { label: e.target.value })} placeholder={t("Подпись", "Label")} />
-                <button className="pano-btn" onClick={() => setSelectedId(null)}>✕</button>
-              </div>
-              <select className="pano-input" value={selected.targetId ?? ""} onChange={(e) => updateHotspot(selected.id, { targetId: e.target.value || null })}>
-                <option value="">{t("Без перехода (просто подпись)", "No transition (label only)")}</option>
-                {scenes.filter((s) => s.id !== scene.id).map((s) => (
-                  <option key={s.id} value={s.id}>{t("Перейти", "Go to")}: {s.title}</option>
-                ))}
-              </select>
-              {richNotes && !selected.targetId && (
-                <>
-                  {noteLibrary(selected.id).length > 0 && (
-                    <select
-                      className="pano-input"
-                      value=""
-                      onChange={(e) => fillFromNote(selected.id, e.target.value)}
-                    >
-                      <option value="">{t("Заполнить из прежней заметки…", "Fill from a previous note…")}</option>
-                      {noteLibrary(selected.id).map((x) => (
-                        <option key={x.key} value={x.key}>{x.text}</option>
-                      ))}
-                    </select>
-                  )}
-                  <textarea
-                    className="pano-input"
-                    rows={3}
-                    placeholder={t("Описание для карточки (необязательно)", "Card description (optional)")}
-                    value={selected.note ?? ""}
-                    onChange={(e) => updateHotspot(selected.id, { note: e.target.value })}
-                  />
-                  <div className="row" style={{ gap: 6 }}>
-                    <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
-                      {selected.photo ? t("Заменить фото", "Replace photo") : t("+ Фото", "+ Photo")}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: "none" }}
-                        onChange={(e) => pickNotePhoto(selected.id, e.target.files?.[0])}
-                      />
-                    </label>
-                    {selected.photo && (
-                      <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title={t("Убрать фото", "Remove photo")}>✕ {t("фото", "photo")}</button>
-                    )}
-                  </div>
-                  <div className="row" style={{ gap: 6 }}>
-                    <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
-                      {t("+ Файл (PDF, DWG, 3D…)", "+ File (PDF, DWG, 3D…)")}
-                      <input
-                        type="file"
-                        multiple
-                        style={{ display: "none" }}
-                        onChange={(e) => { addNotePdfs(selected.id, e.target.files); e.target.value = ""; }}
-                      />
-                    </label>
-                    <button className="pano-btn wide" onClick={() => addNoteLink(selected.id)}>{t("+ Ссылка", "+ Link")}</button>
-                  </div>
-                  {selected.pdfs?.map((pdf, i) => (
-                    <div key={i} className="row" style={{ gap: 6 }}>
-                      <span className="pano-pdf-name grow" title={pdf.href ?? pdf.name}>{pdf.href ? "🔗" : fileIcon(pdf.name)} {pdf.name}</span>
-                      <button className="pano-btn" onClick={() => removeNotePdf(selected.id, i)} title={t("Убрать файл", "Remove file")}>✕</button>
-                    </div>
-                  ))}
-                  {neighborScenes().length > 0 && (
-                    <button className="pano-btn wide" onClick={() => propagateNoteToNeighbors(selected)}>
-                      {t("Показать и на соседних панорамах", "Also show on neighboring panoramas")}
-                    </button>
-                  )}
-                </>
-              )}
-              <div className="row" style={{ gap: 6 }}>
-                <button className={`pano-btn wide${placing === selected.id ? " on" : ""}`} onClick={() => setPlacing(placing === selected.id ? null : selected.id)}>
-                  {placing === selected.id ? t("Нажми на панораму…", "Tap the panorama…") : t("Переставить", "Reposition")}
-                </button>
-                <button className="pano-btn wide danger" onClick={() => deleteHotspot(selected.id)}>{t("Удалить", "Delete")}</button>
-              </div>
-            </>
-          ) : (
-            <>
-              {richNotes && noteLibrary().length > 0 && (
-                <select className="pano-input" value={noteTemplateKey} onChange={(e) => setNoteTemplateKey(e.target.value)}>
-                  <option value="">{t("Новая заметка: пустая", "New note: empty")}</option>
-                  {noteLibrary().map((x) => (
-                    <option key={x.key} value={x.key}>{t("Новая заметка из прежней: ", "New note from previous: ")}{x.text}</option>
-                  ))}
-                </select>
-              )}
-              <div className="row" style={{ gap: 6 }}>
-                <button className={`pano-btn wide${placing === "new" ? " on" : ""}`} onClick={() => setPlacing(placing === "new" ? null : "new")}>
-                  {placing === "new" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Переход", "+ Transition")}
-                </button>
-                {richNotes && (
-                  <button className={`pano-btn wide${placing === "new-note" ? " on" : ""}`} onClick={() => setPlacing(placing === "new-note" ? null : "new-note")}>
-                    {placing === "new-note" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Заметка", "+ Note")}
-                  </button>
-                )}
-              </div>
-              {linesEnabled && onLinesChange && (
+              {linesEnabled && (
                 <>
                   <div className="row" style={{ gap: 6 }}>
                     <select
@@ -1369,6 +1293,115 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
                   )}
                 </>
               )}
+            </>
+          ) : selected ? (
+            <>
+              <div className="row" style={{ gap: 6 }}>
+                <input className="pano-input grow" value={selected.label} onChange={(e) => updateHotspot(selected.id, { label: e.target.value })} placeholder={t("Подпись", "Label")} />
+                <button className="pano-btn" onClick={() => setSelectedId(null)}>✕</button>
+              </div>
+              <select className="pano-input" value={selected.targetId ?? ""} onChange={(e) => updateHotspot(selected.id, { targetId: e.target.value || null })}>
+                <option value="">{t("Без перехода (просто подпись)", "No transition (label only)")}</option>
+                {scenes.filter((s) => s.id !== scene.id).map((s) => (
+                  <option key={s.id} value={s.id}>{t("Перейти", "Go to")}: {s.title}</option>
+                ))}
+              </select>
+              {selected.targetId && (
+                <button
+                  className={`pano-btn wide${selected.hidden ? " on" : ""}`}
+                  onClick={() => updateHotspot(selected.id, { hidden: !selected.hidden })}
+                  title={t("В туре маркер не виден, но по этому месту можно кликать", "In the tour the marker is invisible, but the spot stays clickable")}
+                >
+                  🙈 {t("Скрытый переход (кликабелен, но не виден)", "Hidden transition (clickable but invisible)")}
+                </button>
+              )}
+              {richNotes && !selected.targetId && (
+                <>
+                  {noteLibrary(selected.id).length > 0 && (
+                    <select
+                      className="pano-input"
+                      value=""
+                      onChange={(e) => fillFromNote(selected.id, e.target.value)}
+                    >
+                      <option value="">{t("Заполнить из прежней заметки…", "Fill from a previous note…")}</option>
+                      {noteLibrary(selected.id).map((x) => (
+                        <option key={x.key} value={x.key}>{x.text}</option>
+                      ))}
+                    </select>
+                  )}
+                  <textarea
+                    className="pano-input"
+                    rows={3}
+                    placeholder={t("Описание для карточки (необязательно)", "Card description (optional)")}
+                    value={selected.note ?? ""}
+                    onChange={(e) => updateHotspot(selected.id, { note: e.target.value })}
+                  />
+                  <div className="row" style={{ gap: 6 }}>
+                    <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
+                      {selected.photo ? t("Заменить фото", "Replace photo") : t("+ Фото", "+ Photo")}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => pickNotePhoto(selected.id, e.target.files?.[0])}
+                      />
+                    </label>
+                    {selected.photo && (
+                      <button className="pano-btn" onClick={() => updateHotspot(selected.id, { photo: undefined })} title={t("Убрать фото", "Remove photo")}>✕ {t("фото", "photo")}</button>
+                    )}
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <label className="pano-btn wide" style={{ textAlign: "center", cursor: "pointer" }}>
+                      {t("+ Файл (PDF, DWG, 3D…)", "+ File (PDF, DWG, 3D…)")}
+                      <input
+                        type="file"
+                        multiple
+                        style={{ display: "none" }}
+                        onChange={(e) => { addNotePdfs(selected.id, e.target.files); e.target.value = ""; }}
+                      />
+                    </label>
+                    <button className="pano-btn wide" onClick={() => addNoteLink(selected.id)}>{t("+ Ссылка", "+ Link")}</button>
+                  </div>
+                  {selected.pdfs?.map((pdf, i) => (
+                    <div key={i} className="row" style={{ gap: 6 }}>
+                      <span className="pano-pdf-name grow" title={pdf.href ?? pdf.name}>{pdf.href ? "🔗" : fileIcon(pdf.name)} {pdf.name}</span>
+                      <button className="pano-btn" onClick={() => removeNotePdf(selected.id, i)} title={t("Убрать файл", "Remove file")}>✕</button>
+                    </div>
+                  ))}
+                  {neighborScenes().length > 0 && (
+                    <button className="pano-btn wide" onClick={() => propagateNoteToNeighbors(selected)}>
+                      {t("Показать и на соседних панорамах", "Also show on neighboring panoramas")}
+                    </button>
+                  )}
+                </>
+              )}
+              <div className="row" style={{ gap: 6 }}>
+                <button className={`pano-btn wide${placing === selected.id ? " on" : ""}`} onClick={() => setPlacing(placing === selected.id ? null : selected.id)}>
+                  {placing === selected.id ? t("Нажми на панораму…", "Tap the panorama…") : t("Переставить", "Reposition")}
+                </button>
+                <button className="pano-btn wide danger" onClick={() => deleteHotspot(selected.id)}>{t("Удалить", "Delete")}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {richNotes && noteLibrary().length > 0 && (
+                <select className="pano-input" value={noteTemplateKey} onChange={(e) => setNoteTemplateKey(e.target.value)}>
+                  <option value="">{t("Новая заметка: пустая", "New note: empty")}</option>
+                  {noteLibrary().map((x) => (
+                    <option key={x.key} value={x.key}>{t("Новая заметка из прежней: ", "New note from previous: ")}{x.text}</option>
+                  ))}
+                </select>
+              )}
+              <div className="row" style={{ gap: 6 }}>
+                <button className={`pano-btn wide${placing === "new" ? " on" : ""}`} onClick={() => setPlacing(placing === "new" ? null : "new")}>
+                  {placing === "new" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Переход", "+ Transition")}
+                </button>
+                {richNotes && (
+                  <button className={`pano-btn wide${placing === "new-note" ? " on" : ""}`} onClick={() => setPlacing(placing === "new-note" ? null : "new-note")}>
+                    {placing === "new-note" ? t("Нажми, куда поставить", "Tap where to place it") : t("+ Заметка", "+ Note")}
+                  </button>
+                )}
+              </div>
               <div className="row" style={{ gap: 6 }}>
                 <button className="pano-btn wide" onClick={saveStartView}>{t("Запомнить вид", "Remember view")}</button>
               </div>

@@ -105,6 +105,7 @@ async function exportHotspots(hotspots: Hotspot[]): Promise<Hotspot[]> {
         pitch: h.pitch,
         label: h.label,
         targetId: h.targetId,
+        hidden: h.hidden || undefined,
         note: h.note,
         photoUrl: h.photo ? await blobToDataUrl(h.photo) : undefined,
         pdfs: h.pdfs?.length
