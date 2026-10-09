@@ -1038,7 +1038,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
   return (
     <div
-      className="pano-wrap"
+      className={`pano-wrap${edit && editable ? " editing" : ""}`}
       ref={wrapRef}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
@@ -1512,7 +1512,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
       {toast && <div className="pano-toast">{toast}</div>}
 
-      {mapEnabled && mapUrl && !edit && !mapOpen && (
+      {mapEnabled && mapUrl && !mapOpen && (
         <button className="pano-map-mini" data-hud onPointerDown={(e) => e.stopPropagation()} onClick={() => setMapOpen(true)} title={t("Развернуть карту", "Expand map")}>
           <img src={mapUrl} alt="" />
           {scenes
