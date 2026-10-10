@@ -34,6 +34,7 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
@@ -606,6 +607,17 @@ async function convertFbx(
   }
   root.updateMatrixWorld(true);
   toStandardMaterials(root);
+  // FBXLoader отдаёт геометрию без общих вершин (каждый треугольник со своими) —
+  // объединяем одинаковые: форма и положение вершин те же (допуск 1e-6 м), файл
+  // получается в 2–3 раза меньше. Нормали/UV при этом сохраняются как есть.
+  root.traverse((o) => {
+    const m = o as Mesh;
+    if ((m as unknown as { isMesh?: boolean }).isMesh) {
+      const old = m.geometry;
+      m.geometry = mergeVertices(old, 1e-6);
+      old.dispose();
+    }
+  });
   let meshes = 0;
   let tris = 0;
   root.traverse((o) => {
