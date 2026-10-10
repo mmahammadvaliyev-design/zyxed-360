@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from "react";
 import { db, onProjectChanged } from "./db";
 import { collectBackupEntries } from "./export/backup";
+import { collectDocumentEntries, DOCS_ROOT } from "./export/documents";
 
 type DirHandle = FileSystemDirectoryHandle;
 type AnyHandle = {
@@ -222,6 +223,63 @@ async function prune(root: DirHandle, keep: Set<string>): Promise<void> {
   }
 }
 
+// ── «Документы»: читаемая раскладка файлов по названиям труб/заметок ──
+// Что программа записала в Документы/ — перечислено в .zyxed-index.json. Удаляем
+// при обновлении ТОЛЬКО то, что есть в этом списке (файл убрали из тура или
+// переименовали линию), поэтому чужие файлы, которые вы положили в эти папки,
+// программа не трогает.
+const DOCS_INDEX = ".zyxed-index.json";
+
+async function removeFileAndEmptyDirs(root: DirHandle, path: string): Promise<void> {
+  const parts = path.split("/");
+  const name = parts.pop()!;
+  const chain: DirHandle[] = [root];
+  try {
+    for (const part of parts) chain.push(await chain[chain.length - 1].getDirectoryHandle(part));
+    await chain[chain.length - 1].removeEntry(name);
+  } catch {
+    return; // уже нет — и хорошо
+  }
+  // пустые подпапки убираем снизу вверх, но не сами «Документы/Линии» и «Документы/Заметки»
+  for (let i = chain.length - 1; i >= 3; i--) {
+    let empty = true;
+    for await (const _ of (chain[i] as unknown as { keys: () => AsyncIterable<string> }).keys()) {
+      empty = false;
+      break;
+    }
+    if (!empty) break;
+    try {
+      await chain[i - 1].removeEntry(parts[i - 1]);
+    } catch {
+      break;
+    }
+  }
+}
+
+async function syncDocuments(root: DirHandle, projectId: string): Promise<void> {
+  const entries = await collectDocumentEntries(projectId);
+  const docsDir = await dirFor(root, [DOCS_ROOT]);
+  let prev: string[] = [];
+  try {
+    const f = await (await docsDir.getFileHandle(DOCS_INDEX)).getFile();
+    const parsed: unknown = JSON.parse(await f.text());
+    if (Array.isArray(parsed)) prev = parsed.filter((x): x is string => typeof x === "string" && x.startsWith(`${DOCS_ROOT}/`) && !x.includes(".."));
+  } catch {
+    /* первого списка ещё нет */
+  }
+  const now = new Set(entries.map((e) => e.path));
+  for (const e of entries) {
+    if (e.blob) await writeIfChanged(root, e.path, e.blob);
+    else {
+      const parts = e.path.split("/");
+      const name = parts.pop()!;
+      await writeTextIfChanged(await dirFor(root, parts), name, new TextEncoder().encode(e.text ?? ""));
+    }
+  }
+  for (const old of prev) if (!now.has(old)) await removeFileAndEmptyDirs(root, old);
+  await writeTextIfChanged(docsDir, DOCS_INDEX, new TextEncoder().encode(JSON.stringify([...now])));
+}
+
 const README = `Папка тура — Zyxed 360
 ======================
 
@@ -230,7 +288,10 @@ const README = `Папка тура — Zyxed 360
 backup.json                 — описание тура (панорамы, переходы, линии, документация)
 images/, thumbs/            — панорамы и их превью
 hotspotPhotos/,
-hotspotFiles/, lineFiles/   — фото и вложения заметок и линий (модели, изометрии, PDF)
+hotspotFiles/, lineFiles/   — служебные копии фото и вложений (по ним программа восстанавливает тур)
+Документы/                  — ТО, ЧТО НУЖНО ВАМ: файлы линий и заметок под своими именами,
+                              по папкам с названием трубы (Документы/Линии/<труба>/…).
+                              Берите чертёж прямо отсюда, не открывая тур
 map.jpg                     — план объекта (если есть)
 export/                     — готовые архивы для клиента (кнопка «Экспорт»)
 
@@ -280,6 +341,7 @@ async function runSync(projectId: string): Promise<void> {
     await writeTextIfChanged(dir, "backup.json", plan.manifest);
     await writeTextIfChanged(dir, "README.txt", new TextEncoder().encode(README));
     await prune(dir, keep);
+    await syncDocuments(dir, projectId);
     setStatus(projectId, { state: "synced", syncedAt: new Date().toISOString(), error: null });
   } catch (e) {
     setStatus(projectId, { state: "error", error: (e as Error).message || String(e) });
