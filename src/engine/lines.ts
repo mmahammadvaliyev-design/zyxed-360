@@ -249,8 +249,25 @@ export function drawStrokes(
     // Невидимая линия появляется только когда её выбрали в легенде.
     const hiddenNow = !!def.hidden && focus !== def.id;
     if (hiddenNow && !ghostHidden) continue;
-    const strength = hiddenNow ? 0.28 : focus && focus !== s.lineId ? 0.22 : 1;
-    paint(samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height), def.color, strength, widthPx(lineWidthDeg(def, widths), scale), !!def.taper);
+    const pts = samplePath(s.smooth ? smoothCurve(s.points) : s.points, basis, width, height);
+    if (hiddenNow) {
+      // Невидимая линия в режиме правки: тонкий пунктир по оси — сразу видно, что
+      // она «выключена» (мазок с прозрачностью у ярких цветов выглядел как включённый).
+      ctx.save();
+      ctx.setLineDash([7, 6]);
+      tracePath(ctx, pts);
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = "rgba(0,0,0,0.55)";
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = def.color;
+      ctx.stroke();
+      ctx.restore();
+      continue;
+    }
+    const strength = focus && focus !== s.lineId ? 0.22 : 1;
+    paint(pts, def.color, strength, widthPx(lineWidthDeg(def, widths), scale), !!def.taper);
   }
 
   if (draft && draft.points.length) {
