@@ -47,8 +47,8 @@ interface MountOptions {
 }
 
 const STR = {
-  ru: { measure: "📏 Замер", reset: "↺ Сброс", show: "Показ", modelIn: "Модель в", auto: "авто", scaleTitle: "Масштаб модели — если размеры сильно не те", tipOn: "Нажмите две точки на модели", tipOff: "", m: "м", cm: "см", mm: "мм", upZ: "↕ Вверх: Z", upY: "↕ Вверх: Y", upTitle: "Какая ось смотрит вверх. Меняется только вид — модель остаётся ровно как в файле", east: "В", north: "С" },
-  en: { measure: "📏 Measure", reset: "↺ Reset", show: "Show", modelIn: "Model in", auto: "auto", scaleTitle: "Model scale — if the sizes are way off", tipOn: "Tap two points on the model", tipOff: "", m: "m", cm: "cm", mm: "mm", upZ: "↕ Up: Z", upY: "↕ Up: Y", upTitle: "Which axis points up. Only the view changes — the model stays exactly as in the file", east: "E", north: "N" },
+  ru: { dist: "Дист", angXY: "∠ в плоскости", angElev: "∠ наклона", measure: "📏 Замер", reset: "↺ Сброс", show: "Показ", modelIn: "Модель в", auto: "авто", scaleTitle: "Масштаб модели — если размеры сильно не те", tipOn: "Нажмите две точки на модели", tipOff: "", m: "м", cm: "см", mm: "мм", upZ: "↕ Вверх: Z", upY: "↕ Вверх: Y", upTitle: "Какая ось смотрит вверх. Меняется только вид — модель остаётся ровно как в файле", east: "В", north: "С" },
+  en: { dist: "Dist", angXY: "∠ in plane", angElev: "∠ elevation", measure: "📏 Measure", reset: "↺ Reset", show: "Show", modelIn: "Model in", auto: "auto", scaleTitle: "Model scale — if the sizes are way off", tipOn: "Tap two points on the model", tipOff: "", m: "m", cm: "cm", mm: "mm", upZ: "↕ Up: Z", upY: "↕ Up: Y", upTitle: "Which axis points up. Only the view changes — the model stays exactly as in the file", east: "E", north: "N" },
 };
 
 // В чём показывать результат замера: «авто» — как удобнее по величине (мм до 1 м,
@@ -77,7 +77,7 @@ function injectStyle() {
 .z3d-select{padding:0 6px;font-weight:500;width:auto;max-width:130px;flex:0 0 auto}
 .z3d-select option{color:#14162a}
 .z3d-tip{font:500 12px/1.2 system-ui,sans-serif;color:rgba(255,255,255,.75)}
-.z3d-label{position:absolute;left:0;top:0;transform:translate(-50%,-130%);padding:3px 8px;border-radius:7px;background:rgba(255,211,78,.96);color:#14162a;font:700 12px/1.2 system-ui,sans-serif;white-space:nowrap;pointer-events:none;z-index:1}
+.z3d-label{position:absolute;left:0;top:0;transform:translate(-50%,-110%);padding:3px 8px;border-radius:7px;background:rgba(255,211,78,.9);color:#14162a;font:700 11px/1.25 system-ui,sans-serif;white-space:pre;pointer-events:none;z-index:1}
 .z3d-measuring canvas{cursor:crosshair}
 .z3d-gizmo{position:absolute;z-index:2;pointer-events:none}
 .z3d-gizmo-label{position:absolute;transform:translate(-50%,-50%);font:700 11px/1 system-ui,sans-serif;text-shadow:0 1px 3px #000,0 0 6px #000;white-space:nowrap}
@@ -107,6 +107,32 @@ function formatLength(meters: number, lang: "ru" | "en", unit: DisplayUnit): str
   if (unit === "m") return `${meters.toFixed(3)} ${s.m}`;
   if (meters < 1) return `${mm.toFixed(meters < 0.1 ? 1 : 0)} ${s.mm}`;
   return `${meters.toFixed(meters < 100 ? 2 : 1)} ${s.m}`;
+}
+
+// Как команда DIST в AutoCAD/Navisworks: расстояние, приращения ΔX ΔY ΔZ
+// (по осям файла, со знаком от первой точки ко второй), угол в плоскости
+// «пола» и угол наклона от неё. «Пол» — плоскость, перпендикулярная оси «вверх».
+function formatMeasurement(a: Vector3, b: Vector3, toMeters: number, lang: "ru" | "en", unit: DisplayUnit, zUp: boolean): string {
+  const s = STR[lang];
+  const d = new Vector3().subVectors(b, a).multiplyScalar(toMeters);
+  const total = d.length();
+  const u: DisplayUnit = unit === "auto" ? (total < 1 ? "mm" : "m") : unit;
+  const f = (v: number): string => (v < 0 ? "−" : "") + formatLength(Math.abs(v), lang, u);
+  const hx = d.x;
+  const hy = zUp ? d.y : d.z; // вторая ось «пола»
+  const up = zUp ? d.z : d.y;
+  const plane = Math.hypot(hx, hy);
+  const angPlane = ((Math.atan2(hy, hx) * 180) / Math.PI + 360) % 360;
+  const angElev = (Math.atan2(up, plane) * 180) / Math.PI;
+  return (
+    `${s.dist}: ${formatLength(total, lang, u)}
+` +
+    `ΔX: ${f(d.x)}
+ΔY: ${f(d.y)}
+ΔZ: ${f(d.z)}
+` +
+    `${s.angXY}: ${angPlane.toFixed(1)}°  ${s.angElev}: ${angElev < 0 ? "−" : ""}${Math.abs(angElev).toFixed(1)}°`
+  );
 }
 
 interface Measurement {
@@ -152,7 +178,6 @@ function mount(
   let disposed = false;
   let raf = 0;
   let model: Object3D | null = null;
-  let markerRadius = 0.01;
 
   // ——— замер ———
   const measureGroup = new Group();
@@ -168,7 +193,7 @@ function mount(
   const markerMat = new MeshBasicMaterial({ color: 0xffd34e, depthTest: false, transparent: true });
 
   const addMarker = (p: Vector3): Mesh => {
-    const m = new Mesh(new SphereGeometry(markerRadius, 12, 12), markerMat);
+    const m = new Mesh(new SphereGeometry(1, 12, 12), markerMat);
     m.position.copy(p);
     m.renderOrder = 1000;
     measureGroup.add(m);
@@ -209,7 +234,7 @@ function mount(
     measureGroup.add(line);
     const label = document.createElement("div");
     label.className = "z3d-label";
-    label.textContent = formatLength(a.distanceTo(p) * toMeters, lang, displayUnit);
+    label.textContent = formatMeasurement(a, p, toMeters, lang, displayUnit, camera.up.z > 0.5);
     container.appendChild(label);
     measurements.push({ a, b: p, label });
     pending = null;
@@ -221,6 +246,10 @@ function mount(
   const updateLabels = () => {
     const w = container.clientWidth;
     const h = container.clientHeight;
+    // Точки замера — маленькие кружки постоянного размера на экране (~2.5px
+    // радиус), чтобы не закрывать место, в которое целишься.
+    const perPx = (2 * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(h, 1);
+    for (const child of measureGroup.children) if ((child as Mesh).isMesh) child.scale.setScalar(camera.position.distanceTo(child.position) * perPx * 2.5);
     for (const m of measurements) {
       tmp.copy(m.a).add(m.b).multiplyScalar(0.5).project(camera);
       if (tmp.z > 1) {
@@ -230,7 +259,7 @@ function mount(
       m.label.style.display = "";
       m.label.style.left = `${(tmp.x * 0.5 + 0.5) * w}px`;
       m.label.style.top = `${(-tmp.y * 0.5 + 0.5) * h}px`;
-      m.label.textContent = formatLength(m.a.distanceTo(m.b) * toMeters, lang, displayUnit);
+      m.label.textContent = formatMeasurement(m.a, m.b, toMeters, lang, displayUnit, camera.up.z > 0.5);
     }
   };
 
@@ -458,7 +487,6 @@ function mount(
     controls.minDistance = maxDim * 0.05;
     controls.maxDistance = maxDim * 20;
     controls.update();
-    markerRadius = maxDim * 0.008;
   };
 
   try {
