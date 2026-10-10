@@ -49,8 +49,9 @@ app.innerHTML = `
     <button class="pano-map-mini" data-hud id="map-mini" title="Развернуть карту" hidden>
       <img id="map-mini-img" alt="" />
       <span class="pano-map-mini-expand">⤢</span>
+      <span class="pano-map-mini-collapse" role="button" title="Свернуть карту">–</span>
     </button>
-    <button class="pano-map-mini-toggle" data-hud id="map-mini-toggle" title="Свернуть карту" hidden>–</button>
+    <button class="pano-map-mini-toggle" data-hud id="map-mini-toggle" title="Показать карту">🗺</button>
     <div class="pano-map" data-hud id="map-overlay" hidden>
       <button class="pano-btn close pano-map-close" id="map-close">✕</button>
       <div class="pano-map-frame" id="map-frame">
@@ -514,7 +515,6 @@ function renderMapPins() {
       goTo(i);
       mapOverlay.hidden = true;
       mapMini.hidden = false;
-    mapMiniToggle.hidden = false;
     });
     mapFrame.appendChild(pin);
     mapPinEls.set(s.id, pin);
@@ -696,11 +696,7 @@ window.addEventListener("keyup", (e) => keys.delete(e.key));
 // Сворачивание на телефоне: миникарта → кнопка 🗺, легенда → один чип.
 const mapMiniToggle = document.getElementById("map-mini-toggle") as HTMLButtonElement;
 mapMiniToggle.addEventListener("pointerdown", (e) => e.stopPropagation());
-mapMiniToggle.addEventListener("click", () => {
-  const collapsed = wrapEl.classList.toggle("map-collapsed");
-  mapMiniToggle.textContent = collapsed ? "🗺" : "–";
-  mapMiniToggle.title = collapsed ? "Показать карту" : "Свернуть карту";
-});
+mapMiniToggle.addEventListener("click", () => wrapEl.classList.remove("map-collapsed")); // «🗺» — вернуть свёрнутую карту
 
 btnSpots.addEventListener("click", () => {
   spotsHidden = !spotsHidden;
@@ -784,7 +780,41 @@ if (GYRO_SUPPORTED) {
   });
 }
 
-mapMini.addEventListener("click", () => { mapOverlay.hidden = false; mapMini.hidden = true; });
+// Ближайшая к точке нажатия панорама на карте (pctX/pctY — % от плана, tol — допуск в px):
+// целиться точно в кружок не нужно.
+function nearestOnMap(pctX: number, pctY: number, w: number, h: number, tol: number): number {
+  let best = -1;
+  let bestD = tol;
+  scenes.forEach((sc, i) => {
+    if (sc.mapX == null || sc.mapY == null) return;
+    const d = Math.hypot(((sc.mapX - pctX) / 100) * w, ((sc.mapY - pctY) / 100) * h);
+    if (d <= bestD) { best = i; bestD = d; }
+  });
+  return best;
+}
+mapMiniImg.addEventListener("load", () => {
+  if (mapMiniImg.naturalWidth && mapMiniImg.naturalHeight) mapMini.style.setProperty("--mini-aspect", String(mapMiniImg.naturalWidth / mapMiniImg.naturalHeight));
+});
+mapMini.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  if (t.closest(".pano-map-mini-collapse")) { wrapEl.classList.add("map-collapsed"); return; }
+  const openFull = () => { mapOverlay.hidden = false; mapMini.hidden = true; };
+  if (t.closest(".pano-map-mini-expand") || e.detail === 0) { openFull(); return; }
+  const r = mapMini.getBoundingClientRect();
+  const i = nearestOnMap(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100, r.width, r.height, 16);
+  if (i >= 0) goTo(i);
+  else openFull();
+});
+mapFrame.addEventListener("click", (e) => {
+  if ((e.target as HTMLElement).closest(".pano-map-pin")) return;
+  const r = mapFrame.getBoundingClientRect();
+  const i = nearestOnMap(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100, r.width, r.height, 48);
+  if (i >= 0) {
+    goTo(i);
+    mapOverlay.hidden = true;
+    mapMini.hidden = false;
+  }
+});
 mapClose.addEventListener("click", () => { mapOverlay.hidden = true; mapMini.hidden = false; });
 
 if (typeof document.documentElement.requestFullscreen === "function") {

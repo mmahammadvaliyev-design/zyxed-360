@@ -9,6 +9,7 @@
 // и подписи строятся здесь же, чтобы и приложение, и плеер тура получали их
 // без дублирования кода.
 import {
+  ArrowHelper,
   Box3,
   BufferGeometry,
   Float32BufferAttribute,
@@ -21,7 +22,6 @@ import {
   Object3D,
   PerspectiveCamera,
   PMREMGenerator,
-  Quaternion,
   Raycaster,
   Scene,
   SphereGeometry,
@@ -46,8 +46,8 @@ interface MountOptions {
 }
 
 const STR = {
-  ru: { measure: "📏 Замер", reset: "↺ Сброс", show: "Показ", modelIn: "Модель в", auto: "авто", scaleTitle: "Масштаб модели — если размеры сильно не те", tipOn: "Нажмите две точки на модели", tipOff: "", m: "м", cm: "см", mm: "мм" },
-  en: { measure: "📏 Measure", reset: "↺ Reset", show: "Show", modelIn: "Model in", auto: "auto", scaleTitle: "Model scale — if the sizes are way off", tipOn: "Tap two points on the model", tipOff: "", m: "m", cm: "cm", mm: "mm" },
+  ru: { measure: "📏 Замер", reset: "↺ Сброс", show: "Показ", modelIn: "Модель в", auto: "авто", scaleTitle: "Масштаб модели — если размеры сильно не те", tipOn: "Нажмите две точки на модели", tipOff: "", m: "м", cm: "см", mm: "мм", upZ: "↕ Вверх: Z", upY: "↕ Вверх: Y", upTitle: "Какая ось смотрит вверх. Меняется только вид — модель остаётся ровно как в файле", east: "В", north: "С" },
+  en: { measure: "📏 Measure", reset: "↺ Reset", show: "Show", modelIn: "Model in", auto: "auto", scaleTitle: "Model scale — if the sizes are way off", tipOn: "Tap two points on the model", tipOff: "", m: "m", cm: "cm", mm: "mm", upZ: "↕ Up: Z", upY: "↕ Up: Y", upTitle: "Which axis points up. Only the view changes — the model stays exactly as in the file", east: "E", north: "N" },
 };
 
 // В чём показывать результат замера: «авто» — как удобнее по величине (мм до 1 м,
@@ -78,6 +78,8 @@ function injectStyle() {
 .z3d-tip{font:500 12px/1.2 system-ui,sans-serif;color:rgba(255,255,255,.75)}
 .z3d-label{position:absolute;left:0;top:0;transform:translate(-50%,-130%);padding:3px 8px;border-radius:7px;background:rgba(255,211,78,.96);color:#14162a;font:700 12px/1.2 system-ui,sans-serif;white-space:nowrap;pointer-events:none;z-index:1}
 .z3d-measuring canvas{cursor:crosshair}
+.z3d-gizmo{position:absolute;z-index:2;pointer-events:none}
+.z3d-gizmo-label{position:absolute;transform:translate(-50%,-50%);font:700 11px/1 system-ui,sans-serif;text-shadow:0 1px 3px #000,0 0 6px #000;white-space:nowrap}
 `;
   document.head.appendChild(style);
 }
@@ -135,9 +137,16 @@ function mount(
   scene.environment = envTexture;
 
   const camera = new PerspectiveCamera(45, 1, 0.01, 1000);
-  const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  // OrbitControls запоминает «вверх» при создании — при смене оси пересоздаём.
+  const makeControls = () => {
+    const c = new OrbitControls(camera, canvas);
+    c.enableDamping = true;
+    c.dampingFactor = 0.08;
+    return c;
+  };
+  let controls = makeControls();
+  const Y_UP = new Vector3(0, 1, 0);
+  const Z_UP = new Vector3(0, 0, 1);
 
   let disposed = false;
   let raf = 0;
@@ -230,6 +239,21 @@ function mount(
   const btnMeasure = document.createElement("button");
   btnMeasure.className = "z3d-btn";
   btnMeasure.textContent = S.measure;
+  const btnUp = document.createElement("button");
+  btnUp.className = "z3d-btn";
+  btnUp.title = S.upTitle;
+  const refreshUpBtn = () => {
+    btnUp.textContent = camera.up.z > 0.5 ? S.upZ : S.upY;
+  };
+  const applyUp = (u: Vector3) => {
+    camera.up.copy(u);
+    controls.dispose();
+    controls = makeControls();
+    if (model) fit(model);
+    rebuildGizmo();
+    refreshUpBtn();
+  };
+  btnUp.addEventListener("click", () => applyUp(camera.up.z > 0.5 ? Y_UP : Z_UP));
   const btnReset = document.createElement("button");
   btnReset.className = "z3d-btn";
   btnReset.textContent = S.reset;
@@ -263,7 +287,7 @@ function mount(
   scaleSelect.hidden = true;
   const tip = document.createElement("span");
   tip.className = "z3d-tip";
-  bar.append(btnMeasure, btnReset, unitSelect, btnScale, scaleSelect, tip);
+  bar.append(btnMeasure, btnUp, btnReset, unitSelect, btnScale, scaleSelect, tip);
   container.appendChild(bar);
 
   btnMeasure.addEventListener("click", () => {
@@ -323,11 +347,60 @@ function mount(
     down = null;
   });
 
+  // ——— оси и север ———
+  // Уголок с осями X/Y/Z, вращающийся вместе с камерой. По CAD-соглашению
+  // +X — восток, +Y — север, +Z — вверх; для моделей с осью «вверх = Y»
+  // север откладывается по −Z (так он оказывается при обычном Z-up → Y-up).
+  const GIZMO_X = 10;
+  const GIZMO_Y = 34;
+  let gizmoPx = 96;
+  const gizmoScene = new Scene();
+  const gizmoCam = new PerspectiveCamera(30, 1, 0.1, 30);
+  const gizmoBox = document.createElement("div");
+  gizmoBox.className = "z3d-gizmo";
+  container.appendChild(gizmoBox);
+  const gizmoLabels: { el: HTMLDivElement; dir: Vector3 }[] = [];
+  const gizmoArrows: ArrowHelper[] = [];
+  const rebuildGizmo = () => {
+    for (const a of gizmoArrows) {
+      gizmoScene.remove(a);
+      a.dispose();
+    }
+    gizmoArrows.length = 0;
+    for (const l of gizmoLabels) l.el.remove();
+    gizmoLabels.length = 0;
+    const add = (dir: Vector3, color: number, text: string, len = 1) => {
+      const d = dir.clone().normalize();
+      const arrow = new ArrowHelper(d, new Vector3(), len, color, 0.28, 0.16);
+      gizmoScene.add(arrow);
+      gizmoArrows.push(arrow);
+      const el = document.createElement("div");
+      el.className = "z3d-gizmo-label";
+      el.textContent = text;
+      el.style.color = "#" + color.toString(16).padStart(6, "0");
+      gizmoBox.appendChild(el);
+      gizmoLabels.push({ el, dir: d.multiplyScalar(len) });
+    };
+    const zUp = camera.up.z > 0.5;
+    add(new Vector3(1, 0, 0), 0xff5a5a, `X · ${S.east}`);
+    add(new Vector3(0, 1, 0), 0x5adf7a, zUp ? `Y · ${S.north}` : "Y");
+    add(new Vector3(0, 0, 1), 0x5a9bff, "Z");
+    if (!zUp) add(new Vector3(0, 0, -1), 0xffffff, S.north, 0.8);
+  };
+  const layoutGizmo = () => {
+    gizmoPx = (container.clientWidth || 600) < 520 ? 76 : 96;
+    gizmoBox.style.left = `${GIZMO_X}px`;
+    gizmoBox.style.bottom = `${GIZMO_Y}px`;
+    gizmoBox.style.width = `${gizmoPx}px`;
+    gizmoBox.style.height = `${gizmoPx}px`;
+  };
+
   // ——— камера и цикл отрисовки ———
   const resize = () => {
     const w = container.clientWidth || 1;
     const h = container.clientHeight || 1;
     renderer.setSize(w, h, false);
+    layoutGizmo();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   };
@@ -340,6 +413,24 @@ function mount(
     raf = requestAnimationFrame(loop);
     controls.update();
     renderer.render(scene, camera);
+    // уголок с осями — отдельным проходом в углу, поверх модели
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.setScissorTest(true);
+    renderer.setViewport(GIZMO_X, GIZMO_Y, gizmoPx, gizmoPx);
+    renderer.setScissor(GIZMO_X, GIZMO_Y, gizmoPx, gizmoPx);
+    gizmoCam.position.copy(camera.position).sub(controls.target).setLength(4.6);
+    gizmoCam.up.copy(camera.up);
+    gizmoCam.lookAt(0, 0, 0);
+    renderer.render(gizmoScene, gizmoCam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, container.clientWidth || 1, container.clientHeight || 1);
+    renderer.autoClear = true;
+    for (const l of gizmoLabels) {
+      const v = l.dir.clone().multiplyScalar(1.22).project(gizmoCam);
+      l.el.style.left = `${(v.x * 0.5 + 0.5) * gizmoPx}px`;
+      l.el.style.top = `${(0.5 - v.y * 0.5) * gizmoPx}px`;
+    }
     updateLabels();
   };
 
@@ -351,7 +442,8 @@ function mount(
     const dist = (maxDim / (2 * Math.tan((camera.fov * Math.PI) / 360))) * 1.7;
     camera.near = maxDim / 200;
     camera.far = maxDim * 200;
-    camera.position.set(center.x + dist * 0.6, center.y + dist * 0.45, center.z + dist * 0.75);
+    if (camera.up.z > 0.5) camera.position.set(center.x + dist * 0.6, center.y - dist * 0.75, center.z + dist * 0.45);
+    else camera.position.set(center.x + dist * 0.6, center.y + dist * 0.45, center.z + dist * 0.75);
     camera.updateProjectionMatrix();
     controls.target.copy(center);
     controls.minDistance = maxDim * 0.05;
@@ -371,7 +463,19 @@ function mount(
         }
         model = gltf.scene;
         scene.add(model);
-        fit(model);
+        // Модель из CAD (FBX, переведённый приложением) помечена осью «вверх» —
+        // показываем её «стоя», при этом сами данные не меняются.
+        let hintUp: string | undefined;
+        model.traverse((o) => {
+          const u = (o.userData as { zyxedUp?: string }).zyxedUp;
+          if (u && !hintUp) hintUp = u;
+        });
+        if (hintUp === "z") applyUp(Z_UP);
+        else {
+          rebuildGizmo();
+          refreshUpBtn();
+          fit(model);
+        }
         loop();
         onReady?.();
       },
@@ -393,6 +497,8 @@ function mount(
       lineMat.dispose();
       markerMat.dispose();
       bar.remove();
+      for (const a of gizmoArrows) a.dispose();
+      gizmoBox.remove();
       if (model) disposeObject(model);
       envTexture.dispose();
       pmrem.dispose();
@@ -482,12 +588,12 @@ async function convertFbx(
   const root = new FBXLoader().parse(data, "");
   const unit = (root.userData as { unitScaleFactor?: number }).unitScaleFactor;
   if (typeof unit === "number" && unit > 0) root.scale.multiplyScalar(unit * 0.01);
-  // Ось «вверх» → +Y (для Z-up: поворот −90° вокруг X).
+  // Геометрию НЕ поворачиваем и не зеркалим: направление и наклон труб остаются
+  // ровно такими, как в исходном файле. Ось «вверх» только записываем в файл
+  // (extras) — по ней просмотрщик показывает модель «стоя».
   const up = readFbxUp(data);
   if (up && !(up.axis === 1 && up.sign === 1)) {
-    const v = new Vector3(0, 0, 0);
-    v.setComponent(up.axis, up.sign);
-    root.quaternion.premultiply(new Quaternion().setFromUnitVectors(v, new Vector3(0, 1, 0)));
+    (root.userData as Record<string, unknown>).zyxedUp = (up.sign < 0 ? "-" : "") + "xyz"[up.axis];
   }
   root.updateMatrixWorld(true);
   toStandardMaterials(root);

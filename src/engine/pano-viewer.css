@@ -516,3 +516,28 @@
   .pano-title { font-size: 13px; }
   .pano-brand img { max-height: 36px; max-width: 34vw; }
 }
+
+/* ── Карта: выбор панорамы по ближайшей точке ────────────────────────────
+   Миникарта принимает пропорции плана (иначе точки не совпадали с картинкой),
+   кружки в полном плане — с широкой областью нажатия (±14px вокруг). */
+.pano-map-mini {
+  width: min(var(--mini-w), calc(var(--mini-h) * var(--mini-aspect, 1.44)));
+  height: auto;
+  aspect-ratio: var(--mini-aspect, 1.44);
+}
+.pano-map-mini img { object-fit: fill; }
+.pano-map-pin::before { content: ""; position: absolute; inset: -14px; border-radius: 50%; }
+/* кнопка «вернуть карту» — только когда она свёрнута (телефон); сворачивает «–» внутри самой карты */
+.pano-map-mini-toggle { display: none !important; }
+.pano-map-mini-collapse {
+  display: none; position: absolute; left: 3px; top: 3px; width: 22px; height: 22px;
+  align-items: center; justify-content: center; border-radius: 50%;
+  background: rgba(4, 6, 12, 0.8); color: #fff; font-size: 14px; line-height: 1;
+}
+@media (max-width: 719px) {
+  .pano-map-mini-collapse { display: flex; }
+  .pano-wrap.map-collapsed .pano-map-mini-toggle {
+    display: flex !important; right: 12px; top: calc(62px + env(safe-area-inset-top));
+    width: 34px; height: 34px; border-radius: 10px; font-size: 16px;
+  }
+}

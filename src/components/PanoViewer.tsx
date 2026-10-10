@@ -69,6 +69,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const widthDraggingRef = useRef(false);
   // Сворачивание на телефоне: миникарта → кнопка 🗺, легенда и панель правки → заголовок.
   const [mapMiniCollapsed, setMapMiniCollapsed] = useState(false);
+  const [mapAspect, setMapAspect] = useState(1.44); // пропорции плана — по ним миникарта подгоняет рамку
   const [legendCollapsed, setLegendCollapsed] = useState(false);
   const [editCollapsed, setEditCollapsed] = useState(false);
   const [adjustingWidth, setAdjustingWidth] = useState(false); // тянут ползунок толщины — панель бледнеет, чтобы видеть зону
@@ -900,6 +901,28 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     }
   }
 
+  // Ближайшая к точке нажатия панорама на карте (pctX/pctY — % от плана, w/h —
+  // размер плана в px, tol — допуск в px): по карте не нужно целиться точно в кружок.
+  function nearestOnMap(pctX: number, pctY: number, w: number, h: number, tol: number): Scene | null {
+    let best: Scene | null = null;
+    let bestD = tol;
+    for (const sc of scenes) {
+      if (sc.mapX == null || sc.mapY == null) continue;
+      const d = Math.hypot(((sc.mapX - pctX) / 100) * w, ((sc.mapY - pctY) / 100) * h);
+      if (d <= bestD) { best = sc; bestD = d; }
+    }
+    return best;
+  }
+  function onMiniMapClick(e: React.MouseEvent<HTMLButtonElement>) {
+    const target = e.target as HTMLElement;
+    if (target.closest(".pano-map-mini-collapse")) { setMapMiniCollapsed(true); return; }
+    if (target.closest(".pano-map-mini-expand") || e.detail === 0) { setMapOpen(true); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    const near = nearestOnMap(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100, r.width, r.height, 16);
+    if (near) goTo(near.id);
+    else setMapOpen(true);
+  }
+
   function goTo(id: string) {
     if (id === currentId) return;
     setSelectedId(null);
@@ -1560,8 +1583,22 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
       {mapEnabled && mapUrl && !mapOpen && (
         <>
-        <button className="pano-map-mini" data-hud onPointerDown={(e) => e.stopPropagation()} onClick={() => setMapOpen(true)} title={t("Развернуть карту", "Expand map")}>
-          <img src={mapUrl} alt="" />
+        <button
+          className="pano-map-mini"
+          style={{ ["--mini-aspect" as string]: String(mapAspect) }}
+          data-hud
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onMiniMapClick}
+          title={t("Нажмите на точку — перейти; на карту — развернуть", "Tap a dot to go there; tap the map to expand")}
+        >
+          <img
+            src={mapUrl}
+            alt=""
+            onLoad={(e) => {
+              const im = e.currentTarget;
+              if (im.naturalWidth && im.naturalHeight) setMapAspect(im.naturalWidth / im.naturalHeight);
+            }}
+          />
           {scenes
             .filter((s) => s.mapX != null && s.mapY != null)
             .map((s) => (
@@ -1572,15 +1609,16 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
               />
             ))}
           <span className="pano-map-mini-expand">⤢</span>
+          <span className="pano-map-mini-collapse" role="button" title={t("Свернуть карту", "Collapse map")}>–</span>
         </button>
         <button
           className="pano-map-mini-toggle"
           data-hud
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => setMapMiniCollapsed(!mapMiniCollapsed)}
-          title={mapMiniCollapsed ? t("Показать карту", "Show map") : t("Свернуть карту", "Collapse map")}
+          onClick={() => setMapMiniCollapsed(false)}
+          title={t("Показать карту", "Show map")}
         >
-          {mapMiniCollapsed ? "🗺" : "–"}
+          🗺
         </button>
         </>
       )}
@@ -1588,7 +1626,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       {mapOpen && mapUrl && (
         <div className="pano-map" data-hud onPointerDown={(e) => e.stopPropagation()}>
           <button className="pano-btn close pano-map-close" onClick={() => setMapOpen(false)} title={t("Закрыть", "Close")}>✕</button>
-          <div className="pano-map-frame">
+          <div
+            className="pano-map-frame"
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest(".pano-map-pin")) return; // у кружка свой обработчик
+              const r = e.currentTarget.getBoundingClientRect();
+              const near = nearestOnMap(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100, r.width, r.height, 48);
+              if (near) { goTo(near.id); setMapOpen(false); }
+            }}
+          >
             <img src={mapUrl} alt="" />
             {scenes
               .filter((s) => s.mapX != null && s.mapY != null)
