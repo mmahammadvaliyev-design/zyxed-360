@@ -541,3 +541,11 @@
     width: 34px; height: 34px; border-radius: 10px; font-size: 16px;
   }
 }
+
+/* «Файлы клиента» — блок в карточке заметки/линии (player/clientFiles.ts). */
+.pano-note-mine { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.14); }
+.pano-note-mine-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
+.pano-note-mine-head span { font-size: 11px; color: rgba(255, 255, 255, 0.55); text-align: right; }
+.pano-note-add { justify-content: center; color: #fff; border-style: dashed; }
+.pano-note-add:disabled { opacity: 0.45; cursor: default; }
+.pano-note-mine-msg { margin-top: 8px; font-size: 12px; line-height: 1.4; color: #ffb4a8; }

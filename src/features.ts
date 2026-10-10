@@ -116,6 +116,16 @@ export const FEATURES: FeatureFlag[] = [
       "Mark a pipeline/cable route on the panoramas with a coloured highlighter — point by point or freehand — and attach documentation to the line (text, photo, PDF, drawings, 3D, links). Tapping a line's zone in the tour opens its documentation; a line can be made invisible (its zone stays clickable). A colour legend sits on the left, and a toolbar button toggles all lines on/off.",
     defaultOn: true,
   },
+  {
+    id: "clientFiles",
+    label: "Файлы клиента",
+    labelEn: "Client files",
+    description:
+      "В опубликованном туре у карточки трубы/заметки появляется блок «Мои файлы»: зритель может прикрепить СВОИ файлы (чертёж, акт, фото) и скачать их обратно. Файлы хранятся только в браузере этого устройства — вам не отправляются и в тур не попадают; ваши исходные файлы остаются нетронутыми. После нового экспорта того же тура файлы клиента остаются на месте.",
+    descriptionEn:
+      "In the published tour a pipe/note card gets a \"My files\" block: the viewer can attach THEIR OWN files (a drawing, a report, a photo) and download them back. Files are kept only in this device's browser — they are not sent to you and don't become part of the tour; your original files stay untouched. After re-exporting the same tour the client's files stay in place.",
+    defaultOn: true,
+  },
 ];
 
 const STORAGE_KEY = "zyxed360:features";

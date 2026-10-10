@@ -99,6 +99,9 @@ export interface SceneMeta {
 // запроса data.json/картинок.
 export interface TourManifest {
   title: string;
+  // Постоянный id тура (id проекта): по нему плеер хранит файлы клиента, и они
+  // переживают повторный экспорт того же тура (см. player/clientFiles.ts).
+  tourId?: string;
   scenes: SceneMeta[];
   images: Record<string, string>;
   // Снимок состояния переключаемых функций на момент экспорта (см. src/features.ts) —

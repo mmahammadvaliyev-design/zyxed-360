@@ -21,6 +21,7 @@ import type { Hotspot, NotePdf, SceneMeta, TourManifest } from "../src/engine/ty
 import { drawStrokes, hitTestStrokes, lineHasDocs } from "../src/engine/lines";
 import type { LineDef } from "../src/engine/types";
 import { dataUrlToBytes, describeModelError, fileIcon, isViewable3d, mimeForName } from "../src/engine/files";
+import { addClientFiles, listClientFiles, removeClientFile } from "./clientFiles";
 
 const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
@@ -359,6 +360,103 @@ function toggleNote(h: Hotspot) {
   else openNote(h);
 }
 
+// Функция «Файлы клиента»: блок «Мои файлы» в карточке — зритель прикрепляет
+// свои файлы, они лежат только в браузере этого устройства (player/clientFiles.ts).
+function fmtSize(n: number): string {
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(0) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+
+function buildClientFiles(cardId: string): HTMLElement {
+  const ru = lang !== "en";
+  const owner = `${manifest?.tourId ?? "t:" + (manifest?.title ?? "")}|${cardId}`;
+  const box = document.createElement("div");
+  box.className = "pano-note-mine";
+  const head = document.createElement("div");
+  head.className = "pano-note-mine-head";
+  const ttl = document.createElement("b");
+  ttl.textContent = ru ? "Мои файлы" : "My files";
+  const sub = document.createElement("span");
+  sub.textContent = ru ? "хранятся только на этом устройстве" : "kept on this device only";
+  head.append(ttl, sub);
+  const list = document.createElement("div");
+  const msg = document.createElement("div");
+  msg.className = "pano-note-mine-msg";
+  msg.hidden = true;
+  const showMsg = (text: string) => { msg.textContent = text; msg.hidden = !text; };
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.style.display = "none";
+  const add = document.createElement("button");
+  add.className = "pano-note-pdf pano-note-add";
+  add.textContent = "+ " + (ru ? "Добавить файл" : "Add a file");
+  add.addEventListener("click", () => input.click());
+
+  const refresh = async () => {
+    let files;
+    try {
+      files = await listClientFiles(owner);
+    } catch {
+      list.replaceChildren();
+      showMsg(ru ? "В этом браузере нельзя сохранять файлы (приватный режим или запрет хранения данных)." : "Files can't be saved in this browser (private mode or storage blocked).");
+      add.disabled = true;
+      return;
+    }
+    list.replaceChildren();
+    for (const f of files) {
+      const row = document.createElement("div");
+      row.className = "pano-note-filerow";
+      const btn = document.createElement("button");
+      btn.className = "pano-note-pdf";
+      const name = document.createElement("span");
+      name.className = "pano-note-pdf-name";
+      name.textContent = fileIcon(f.name) + " " + f.name + " · " + fmtSize(f.size);
+      const dl = document.createElement("span");
+      dl.className = "pano-note-pdf-dl";
+      dl.textContent = "⬇ " + (ru ? "Скачать" : "Download");
+      btn.append(name, dl);
+      btn.addEventListener("click", () => {
+        const url = URL.createObjectURL(f.blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = f.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      });
+      const del = document.createElement("button");
+      del.className = "pano-note-dlbtn";
+      del.textContent = "✕";
+      del.title = ru ? "Удалить файл с этого устройства" : "Remove this file from this device";
+      del.addEventListener("click", async () => {
+        if (!window.confirm(ru ? `Удалить «${f.name}» с этого устройства?` : `Remove “${f.name}” from this device?`)) return;
+        try { await removeClientFile(f.id); } catch { /* уже нет */ }
+        void refresh();
+      });
+      row.append(btn, del);
+      list.appendChild(row);
+    }
+  };
+  input.addEventListener("change", async () => {
+    const picked = [...(input.files ?? [])];
+    input.value = "";
+    if (!picked.length) return;
+    showMsg("");
+    try {
+      await addClientFiles(owner, picked);
+    } catch (e) {
+      showMsg((ru ? "Не удалось сохранить: " : "Couldn't save: ") + ((e as Error).message || String(e)));
+    }
+    void refresh();
+  });
+  box.append(head, list, add, input, msg);
+  void refresh();
+  return box;
+}
+
 function openNote(h: Hotspot) {
   closeNote();
   const card = document.createElement("div");
@@ -458,6 +556,7 @@ function openNote(h: Hotspot) {
     }
     body.appendChild(row);
   }
+  if (manifest?.features?.clientFiles) body.appendChild(buildClientFiles(h.id));
   card.appendChild(body);
   wrapEl.appendChild(card);
   noteEl = card;

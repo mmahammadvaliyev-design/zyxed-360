@@ -149,6 +149,7 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
 
   const manifest: TourManifest = {
     title: project.title,
+    tourId: project.id,
     scenes: await Promise.all(
       scenes.map(
         async (s): Promise<SceneMeta> => ({
