@@ -246,10 +246,10 @@ function mount(
   const updateLabels = () => {
     const w = container.clientWidth;
     const h = container.clientHeight;
-    // Точки замера — маленькие кружки постоянного размера на экране (~2.5px
+    // Точки замера — маленькие кружки постоянного размера на экране (~1.25px
     // радиус), чтобы не закрывать место, в которое целишься.
     const perPx = (2 * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(h, 1);
-    for (const child of measureGroup.children) if ((child as Mesh).isMesh) child.scale.setScalar(camera.position.distanceTo(child.position) * perPx * 2.5);
+    for (const child of measureGroup.children) if ((child as Mesh).isMesh) child.scale.setScalar(camera.position.distanceTo(child.position) * perPx * 1.25);
     for (const m of measurements) {
       tmp.copy(m.a).add(m.b).multiplyScalar(0.5).project(camera);
       if (tmp.z > 1) {
