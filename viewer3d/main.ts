@@ -361,6 +361,10 @@ function mount(
   container.appendChild(gizmoBox);
   const gizmoLabels: { el: HTMLDivElement; dir: Vector3 }[] = [];
   const gizmoArrows: ArrowHelper[] = [];
+  // Пометка «вверх» из файла (FBX, переведённый приложением): модель в системе CAD,
+  // оси подписываем как есть. Без пометки (обычный GLB, Y-up) оси рисуем по правилам
+  // CAD: вертикаль = Z, север = Y (в GLB это −Z), восток = X — как на самой модели.
+  let modelHint: string | undefined;
   const rebuildGizmo = () => {
     for (const a of gizmoArrows) {
       gizmoScene.remove(a);
@@ -381,11 +385,15 @@ function mount(
       gizmoBox.appendChild(el);
       gizmoLabels.push({ el, dir: d.multiplyScalar(len) });
     };
-    const zUp = camera.up.z > 0.5;
+    const cadMapped = camera.up.z <= 0.5 && !modelHint;
     add(new Vector3(1, 0, 0), 0xff5a5a, `X · ${S.east}`);
-    add(new Vector3(0, 1, 0), 0x5adf7a, zUp ? `Y · ${S.north}` : "Y");
-    add(new Vector3(0, 0, 1), 0x5a9bff, "Z");
-    if (!zUp) add(new Vector3(0, 0, -1), 0xffffff, S.north, 0.8);
+    if (cadMapped) {
+      add(new Vector3(0, 0, -1), 0x5adf7a, `Y · ${S.north}`);
+      add(new Vector3(0, 1, 0), 0x5a9bff, "Z");
+    } else {
+      add(new Vector3(0, 1, 0), 0x5adf7a, `Y · ${S.north}`);
+      add(new Vector3(0, 0, 1), 0x5a9bff, "Z");
+    }
   };
   const layoutGizmo = () => {
     gizmoPx = (container.clientWidth || 600) < 520 ? 76 : 96;
@@ -470,6 +478,7 @@ function mount(
           const u = (o.userData as { zyxedUp?: string }).zyxedUp;
           if (u && !hintUp) hintUp = u;
         });
+        modelHint = hintUp;
         if (hintUp === "z") applyUp(Z_UP);
         else {
           rebuildGizmo();
