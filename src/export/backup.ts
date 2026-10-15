@@ -159,6 +159,15 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
   } catch {
     throw new Error("Не удалось прочитать файл — это не ZIP-архив.");
   }
+  return importBackupFiles(files);
+}
+
+// То же, но из уже прочитанного набора файлов (ZIP-копия или папка тура на диске).
+// keepIds — оставить id панорам/заметок/штрихов как в папке: тогда имена файлов
+// в папке (images/<id>.jpg…) не меняются, и привязанная к ней синхронизация не
+// пересоздаёт всё заново. Id не сохраняем, если такие панорамы уже есть в
+// программе (другой тур с теми же id) — иначе их можно было бы затереть.
+export async function importBackupFiles(files: Record<string, Uint8Array>, opts: { keepIds?: boolean } = {}): Promise<Project> {
   const manifestRaw = files["backup.json"];
   if (!manifestRaw) throw new Error("Это не похоже на резервную копию Zyxed 360 — нет backup.json.");
   let manifest: BackupManifest;
@@ -172,7 +181,8 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
 
   const title = await uniqueProjectTitle(manifest.title || "Импортированный тур");
   const project = await createProject(title);
-  const idMap = new Map(manifest.scenes.map((s) => [s.id, uid()]));
+  const keep = !!opts.keepIds && (await db.scenes.bulkGet(manifest.scenes.map((s) => s.id))).every((x) => !x);
+  const idMap = new Map(manifest.scenes.map((s) => [s.id, keep ? s.id : uid()]));
 
   if (manifest.lines?.length) {
     const restored: LineDef[] = manifest.lines.map((l) => {
@@ -210,7 +220,7 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
       });
       return {
         ...rest,
-        id: uid(),
+        id: keep ? h.id : uid(),
         targetId: h.targetId ? idMap.get(h.targetId) ?? null : null,
         photo: photoBytes ? new Blob([new Uint8Array(photoBytes)], { type: "image/jpeg" }) : undefined,
         pdfs: pdfs.length ? pdfs : undefined,
@@ -231,7 +241,7 @@ export async function importProjectBackup(file: Blob): Promise<Project> {
       hotspots,
       mapX: s.mapX,
       mapY: s.mapY,
-      strokes: s.strokes?.length ? s.strokes.map((st) => ({ ...st, id: uid() })) : undefined,
+      strokes: s.strokes?.length ? s.strokes.map((st) => ({ ...st, id: keep ? st.id : uid() })) : undefined,
       lineWidths: s.lineWidths,
     });
   }

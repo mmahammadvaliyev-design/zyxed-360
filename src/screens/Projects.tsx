@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
 import { createProject, db, deleteProject, duplicateProject, uniqueProjectTitle, type Project, type Scene } from "../db";
 import { importProjectBackup } from "../export/backup";
-import { chooseFolderForProject, createTourFolder, FOLDER_SUPPORTED, forgetLink, linkProjectToFolder, pickFolder, useFolderStatus } from "../folderSync";
+import { chooseFolderForProject, createTourFolder, FOLDER_SUPPORTED, forgetLink, importTourFromFolder, linkProjectToFolder, pickFolder, pickTourFolder, relinkExisting, useFolderStatus } from "../folderSync";
 import { useFeature } from "../features";
 import { useT } from "../i18n";
 
@@ -166,6 +166,39 @@ export default function Projects() {
     }
   }
 
+  // «Открыть тур из папки»: поднимает тур из папки на диске (backup.json + images/…)
+  // и продолжает автосохранение в неё же. Если этот тур уже есть в программе —
+  // открывает его (по желанию можно загрузить версию из папки отдельным туром).
+  async function openFromFolder() {
+    setNote(null);
+    try {
+      const picked = await pickTourFolder();
+      if (!picked) return;
+      if (picked.existingProjectId) {
+        const useExisting = window.confirm(
+          t(
+            `Тур из папки «${picked.dir.name}» уже есть в программе.\n\nOK — открыть его.\nОтмена — загрузить версию из папки отдельным новым туром (с папкой она связана не будет).`,
+            `The tour from the folder "${picked.dir.name}" is already in the app.\n\nOK — open it.\nCancel — load the version from the folder as a separate new tour (it won't be linked to the folder).`,
+          ),
+        );
+        if (useExisting) {
+          await relinkExisting(picked.existingProjectId, picked.dir);
+          nav(`/p/${picked.existingProjectId}`);
+          return;
+        }
+        setBusy(t("Загружаю тур из папки…", "Loading the tour from the folder…"));
+        nav(`/p/${await importTourFromFolder(picked.dir, false)}`);
+        return;
+      }
+      setBusy(t("Загружаю тур из папки…", "Loading the tour from the folder…"));
+      nav(`/p/${await importTourFromFolder(picked.dir, true)}`);
+    } catch (e) {
+      setNote(t(`Не удалось открыть тур из папки: ${(e as Error).message}`, `Couldn't open the tour from the folder: ${(e as Error).message}`));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div>
       <div className="brand">
@@ -189,6 +222,11 @@ export default function Projects() {
             "The button opens a folder picker: a tour subfolder is created inside it and all data is saved there automatically. Cancel — a tour without a folder.",
           )}
         </p>
+      )}
+      {FOLDER_SUPPORTED && (
+        <button className="ghost" style={{ width: "100%", marginTop: 8 }} disabled={!!busy} onClick={openFromFolder}>
+          {t("📂 Открыть тур из папки", "📂 Open a tour from a folder")}
+        </button>
       )}
       {projectBackup && (
         <>

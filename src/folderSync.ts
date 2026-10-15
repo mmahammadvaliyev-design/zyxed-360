@@ -11,7 +11,7 @@
 // Папка — это КОПИЯ: правки файлов вне программы обратно не попадают.
 import { useSyncExternalStore } from "react";
 import { db, onProjectChanged } from "./db";
-import { collectBackupEntries } from "./export/backup";
+import { collectBackupEntries, importBackupFiles } from "./export/backup";
 import { buildTourFiles } from "./export/bundle";
 import { collectDocumentEntries, DOCS_ROOT } from "./export/documents";
 
@@ -146,6 +146,104 @@ export async function chooseFolderForProject(projectId: string, title: string): 
   const dir = await createTourFolder(parent, title);
   await linkProjectToFolder(projectId, dir);
   return "linked";
+}
+
+// ── «Открыть тур из папки» ────────────────────────────────────────
+// Тур живёт в браузере, а папка — его копия. Если браузер очищен, данные
+// перенесены на другой компьютер или просто нужно продолжить работу из папки,
+// программа читает папку тура (backup.json + images/ …) и поднимает из неё
+// тур — без архивирования и ручного «Импортировать копию».
+
+export interface PickedTourFolder {
+  dir: DirHandle;
+  existingProjectId: string | null; // тур, уже привязанный к этой папке в программе
+}
+
+async function hasFile(dir: DirHandle, name: string): Promise<boolean> {
+  try {
+    await dir.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Просит выбрать папку тура. Если выбрана папка, ВНУТРИ которой лежит одна
+// папка тура (например «360-Tour» с «Wet-Oil»), берём её сами.
+export async function pickTourFolder(): Promise<PickedTourFolder | null> {
+  let dir = await pickFolder();
+  if (!dir) return null;
+  if (!(await hasFile(dir, "backup.json"))) {
+    const found: DirHandle[] = [];
+    for await (const [, h] of (dir as unknown as { entries: () => AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+      if (h.kind === "directory" && (await hasFile(h as DirHandle, "backup.json"))) found.push(h as DirHandle);
+    }
+    if (found.length === 1) dir = found[0];
+    else if (found.length > 1) throw new Error(`В выбранной папке несколько туров (${found.map((f) => f.name).join(", ")}). Выберите папку нужного тура.`);
+    else throw new Error("В этой папке нет backup.json — это не папка тура Zyxed 360. Выберите папку самого тура.");
+  }
+  let existing: string | null = null;
+  for (const row of await db.folders.toArray()) {
+    try {
+      if (await (row.handle as unknown as { isSameEntry: (o: FileSystemHandle) => Promise<boolean> }).isSameEntry(dir)) {
+        if (await db.projects.get(row.projectId)) existing = row.projectId;
+        break;
+      }
+    } catch {
+      /* handle не открывается — пропускаем */
+    }
+  }
+  return { dir, existingProjectId: existing };
+}
+
+// Тур уже в программе: обновляем доступ к папке (свежий handle из выбора уже с
+// правом записи) и продолжаем автосохранение.
+export async function relinkExisting(projectId: string, dir: DirHandle): Promise<void> {
+  await db.folders.put({ projectId, handle: dir, name: dir.name, linkedAt: new Date().toISOString() });
+  handles.set(projectId, dir);
+  setStatus(projectId, { linked: true, folderName: dir.name, state: "idle", error: null });
+  scheduleSync(projectId, 1500);
+}
+
+const READ_DIRS = ["thumbs", "hotspotPhotos", "hotspotFiles", "hotspotPdfs", "lineFiles"];
+
+async function readFolderFiles(dir: DirHandle): Promise<Record<string, Uint8Array>> {
+  const files: Record<string, Uint8Array> = {};
+  const read = async (d: DirHandle, prefix: string) => {
+    for await (const [name, h] of (d as unknown as { entries: () => AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+      if (h.kind === "file") files[prefix + name] = new Uint8Array(await (await (h as FileSystemFileHandle).getFile()).arrayBuffer());
+    }
+  };
+  let images: DirHandle;
+  try {
+    images = await dir.getDirectoryHandle("images");
+  } catch {
+    throw new Error("В папке тура нет подпапки images/ — панорамы не найдены.");
+  }
+  await read(images, "images/");
+  for (const name of READ_DIRS) {
+    try {
+      await read(await dir.getDirectoryHandle(name), name + "/");
+    } catch {
+      /* подпапки может не быть (нет заметок/линий) */
+    }
+  }
+  for (const name of ["backup.json", "map.jpg"]) {
+    try {
+      files[name] = new Uint8Array(await (await (await dir.getFileHandle(name)).getFile()).arrayBuffer());
+    } catch {
+      if (name === "backup.json") throw new Error("В папке нет backup.json.");
+    }
+  }
+  return files;
+}
+
+// Поднимает тур из папки. link=true — привязывает его к этой же папке, чтобы
+// автосохранение продолжилось туда же; false — просто загружает отдельной копией.
+export async function importTourFromFolder(dir: DirHandle, link: boolean): Promise<string> {
+  const project = await importBackupFiles(await readFolderFiles(dir), { keepIds: true });
+  if (link) await linkProjectToFolder(project.id, dir);
+  return project.id;
 }
 
 export async function forgetLink(projectId: string): Promise<void> {
