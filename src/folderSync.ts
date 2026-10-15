@@ -24,7 +24,7 @@ type AnyHandle = {
 export const FOLDER_SUPPORTED =
   typeof window !== "undefined" && typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
 
-export type SyncState = "idle" | "syncing" | "synced" | "needs-permission" | "error";
+export type SyncState = "idle" | "syncing" | "synced" | "needs-permission" | "conflict" | "error";
 export interface FolderStatus {
   linked: boolean;
   folderName: string;
@@ -34,8 +34,9 @@ export interface FolderStatus {
   // «Просмотровый» index.html в папке: когда обновлён и идёт ли сборка.
   viewerAt: string | null;
   viewerBusy: boolean;
+  viewerError: string | null;
 }
-const NOT_LINKED: FolderStatus = { linked: false, folderName: "", state: "idle", syncedAt: null, error: null, viewerAt: null, viewerBusy: false };
+const NOT_LINKED: FolderStatus = { linked: false, folderName: "", state: "idle", syncedAt: null, error: null, viewerAt: null, viewerBusy: false, viewerError: null };
 
 const statuses = new Map<string, FolderStatus>();
 const handles = new Map<string, DirHandle>();
@@ -132,8 +133,17 @@ export async function createTourFolder(parent: DirHandle, title: string): Promis
   }
 }
 
-export async function linkProjectToFolder(projectId: string, dir: DirHandle): Promise<void> {
-  await db.folders.put({ projectId, handle: dir, name: dir.name, linkedAt: new Date().toISOString() });
+async function folderBackupMtime(dir: DirHandle): Promise<number | null> {
+  try {
+    return (await (await dir.getFileHandle("backup.json")).getFile()).lastModified;
+  } catch {
+    return null;
+  }
+}
+
+export async function linkProjectToFolder(projectId: string, dir: DirHandle, knownMtime?: number | null): Promise<void> {
+  const mtime = knownMtime !== undefined ? knownMtime : await folderBackupMtime(dir);
+  await db.folders.put({ projectId, handle: dir, name: dir.name, linkedAt: new Date().toISOString(), ...(mtime !== null ? { backupMtime: mtime } : {}) });
   handles.set(projectId, dir);
   setStatus(projectId, { linked: true, folderName: dir.name, state: "idle", error: null });
   scheduleSync(projectId, 0);
@@ -199,7 +209,8 @@ export async function pickTourFolder(): Promise<PickedTourFolder | null> {
 // Тур уже в программе: обновляем доступ к папке (свежий handle из выбора уже с
 // правом записи) и продолжаем автосохранение.
 export async function relinkExisting(projectId: string, dir: DirHandle): Promise<void> {
-  await db.folders.put({ projectId, handle: dir, name: dir.name, linkedAt: new Date().toISOString() });
+  const prev = await db.folders.get(projectId);
+  await db.folders.put({ projectId, handle: dir, name: dir.name, linkedAt: new Date().toISOString(), ...(prev?.backupMtime !== undefined ? { backupMtime: prev.backupMtime } : {}) });
   handles.set(projectId, dir);
   setStatus(projectId, { linked: true, folderName: dir.name, state: "idle", error: null });
   scheduleSync(projectId, 1500);
@@ -241,8 +252,9 @@ async function readFolderFiles(dir: DirHandle): Promise<Record<string, Uint8Arra
 // Поднимает тур из папки. link=true — привязывает его к этой же папке, чтобы
 // автосохранение продолжилось туда же; false — просто загружает отдельной копией.
 export async function importTourFromFolder(dir: DirHandle, link: boolean): Promise<string> {
+  const mtime = await folderBackupMtime(dir);
   const project = await importBackupFiles(await readFolderFiles(dir), { keepIds: true });
-  if (link) await linkProjectToFolder(project.id, dir);
+  if (link) await linkProjectToFolder(project.id, dir, mtime);
   return project.id;
 }
 
@@ -325,7 +337,9 @@ export function scheduleViewer(projectId: string, delayMs = VIEWER_DELAY_MS): vo
   );
 }
 
-async function runViewer(projectId: string): Promise<void> {
+const viewerBuilt = new Map<string, string>(); // projectId → project.updatedAt, при котором index.html уже собран в этой сессии
+
+async function runViewer(projectId: string, force = false): Promise<void> {
   const dir = handles.get(projectId);
   if (!dir) return;
   if (viewerRunning.has(projectId)) {
@@ -336,11 +350,16 @@ async function runViewer(projectId: string): Promise<void> {
   setStatus(projectId, { viewerBusy: true });
   try {
     if ((await queryPerm(dir)) !== "granted") return;
+    if (statuses.get(projectId)?.state === "conflict") return; // папка с чужими изменениями — не трогаем
+    const stamp0 = (await db.projects.get(projectId))?.updatedAt ?? "";
+    if (!force && viewerBuilt.get(projectId) === stamp0) return; // тур не менялся — пересобирать незачем
     let built;
     try {
       built = await buildTourFiles(projectId);
-    } catch {
-      return; // например, в туре ещё нет панорам — просматривать нечего
+    } catch (e) {
+      // нет панорам — просматривать нечего; остальное (например, слишком большой тур) покажем
+      if (!/нет ни одной панорамы/.test((e as Error).message)) setStatus(projectId, { viewerError: (e as Error).message || String(e) });
+      return;
     }
     for (const [path, bytes] of Object.entries(built.files)) {
       const parts = path.split("/");
@@ -358,9 +377,11 @@ async function runViewer(projectId: string): Promise<void> {
     } catch {
       /* папки assets ещё нет */
     }
-    setStatus(projectId, { viewerAt: new Date().toISOString() });
+    viewerBuilt.set(projectId, stamp0);
+    setStatus(projectId, { viewerAt: new Date().toISOString(), viewerError: null });
   } catch (e) {
     console.warn("[folderSync] не удалось обновить index.html тура:", e);
+    setStatus(projectId, { viewerError: (e as Error).message || String(e) });
   } finally {
     viewerRunning.delete(projectId);
     setStatus(projectId, { viewerBusy: false });
@@ -506,7 +527,18 @@ async function runSync(projectId: string): Promise<void> {
       return;
     }
     const project = await db.projects.get(projectId);
-    if (!project) return;
+    if (!project) {
+      setStatus(projectId, { state: "idle" });
+      return;
+    }
+    // Папку правили снаружи (другой компьютер, восстановление из архива)? Тогда её не
+    // перезаписываем молча — пользователь решает, чья версия главнее.
+    const link = await db.folders.get(projectId);
+    const mtimeNow = await folderBackupMtime(dir);
+    if (link?.backupMtime !== undefined && mtimeNow !== null && mtimeNow !== link.backupMtime) {
+      setStatus(projectId, { state: "conflict" });
+      return;
+    }
     const plan = await collectBackupEntries(projectId, true);
     const keep = new Set(plan.entries.map((e) => e.path));
     for (const e of plan.entries) await writeIfChanged(dir, e.path, e.blob);
@@ -514,6 +546,8 @@ async function runSync(projectId: string): Promise<void> {
     await writeTextIfChanged(dir, "README.txt", new TextEncoder().encode(README));
     await prune(dir, keep);
     await syncDocuments(dir, projectId);
+    const written = await folderBackupMtime(dir);
+    if (written !== null) await db.folders.update(projectId, { backupMtime: written });
     setStatus(projectId, { state: "synced", syncedAt: new Date().toISOString(), error: null });
     scheduleViewer(projectId);
   } catch (e) {
@@ -533,7 +567,24 @@ export async function syncNow(projectId: string): Promise<void> {
   const vt = viewerTimers.get(projectId);
   if (vt) clearTimeout(vt);
   viewerTimers.delete(projectId);
-  await runViewer(projectId);
+  await runViewer(projectId, true);
+}
+
+// Конфликт: в папке есть изменения не от этой программы.
+// 1) «Заменить папку моей версией» — принимаем текущее состояние папки как известное и пишем поверх.
+export async function resolveConflictOverwrite(projectId: string): Promise<void> {
+  const dir = handles.get(projectId);
+  if (!dir) return;
+  const m = await folderBackupMtime(dir);
+  if (m !== null) await db.folders.update(projectId, { backupMtime: m });
+  setStatus(projectId, { state: "idle" });
+  await syncNow(projectId);
+}
+// 2) «Загрузить версию из папки отдельным туром» — тур из папки без привязки к ней.
+export async function resolveConflictImport(projectId: string): Promise<string | null> {
+  const dir = handles.get(projectId);
+  if (!dir) return null;
+  return importTourFromFolder(dir, false);
 }
 
 // ── Экспорт для клиента → в подпапку export/ ───────────────────────

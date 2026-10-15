@@ -204,6 +204,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (mapOpenRef.current) { setMapOpen(false); return true; }
     if (noteHotspotRef.current) { setNoteHotspot(null); return true; }
     if (blurModeRef.current) { exitBlurMode(); return true; }
+    if (selectedBlurIdRef.current) { setSelectedBlurId(null); return true; }
     if (lineModeRef.current) { exitLineMode(); return true; }
     if (placingRef.current) { setPlacing(null); return true; }
     if (selectedIdRef.current) { setSelectedId(null); return true; }
@@ -235,6 +236,25 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     return () => URL.revokeObjectURL(url);
   }, [noteHotspot]);
 
+  // Карточка хранит снимок заметки/линии: после правки текста/файлов обновляем её,
+  // а если объект удалили — закрываем (иначе показывала бы устаревшее).
+  useEffect(() => {
+    const cur = noteHotspotRef.current;
+    if (!cur) return;
+    let fresh: Hotspot | null;
+    if (cur.id.startsWith("line:")) {
+      const def = lines.find((l) => `line:${l.id}` === cur.id);
+      fresh = def ? lineToCard(def) : null;
+    } else {
+      fresh = scenes.flatMap((s) => s.hotspots).find((h) => h.id === cur.id) ?? null;
+    }
+    if (!fresh) {
+      setNoteHotspot(null);
+      return;
+    }
+    if (fresh.label !== cur.label || fresh.note !== cur.note || fresh.photo !== cur.photo || fresh.pdfs !== cur.pdfs) setNoteHotspot(fresh);
+  }, [lines, scenes]);
+
   // Новое окно документации — на своё место (положение после перетаскивания не переносим).
   useEffect(() => {
     setNotePos(null);
@@ -245,9 +265,17 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     draftRef.current = [];
     freeDrawRef.current = null;
     setDraftCount(0);
+    blurPtsRef.current = [];
+    blurDragRef.current = null;
+    setBlurPtsCount(0);
+    setSelectedBlurId(null);
   }, [currentId]);
   useEffect(() => {
-    if (!edit) exitLineMode();
+    if (!edit) {
+      exitLineMode();
+      exitBlurMode();
+      setSelectedBlurId(null);
+    }
   }, [edit]);
 
   // 3D-просмотрщик: код подключается при первом открытии модели; всё, что он
@@ -370,7 +398,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       const draft = draftRef.current.length && active
         ? { points: draftRef.current, color: active.color, vertices: lineModeRef.current === "points", smooth: lineModeRef.current === "points" && smoothRef.current, widthDeg: lineWidthDeg(active, widths), taper: !!active.taper }
         : null;
-      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current, widths);
+      drawStrokes(ctx, width, height, basis, strokes, linesRef.current, focusLineIdRef.current, draft, editRef.current && editTabRef.current === "lines", widths);
     };
 
     let raf = 0;
@@ -441,7 +469,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
 
     loadedBlurSigRef.current = `${target.id}|${blurSigOf(target.blurs)}`;
     setBlurBusy(false);
-    (target.blurs?.length ? bakeBlursToBitmap(target.image, target.blurs, BLUR_PREVIEW_WIDTH) : loadBitmap(target.image))
+    (target.blurs?.length ? bakeBlursToBitmap(target.image, target.blurs, BLUR_PREVIEW_WIDTH).catch(() => loadBitmap(target.image)) : loadBitmap(target.image))
       .then((bmp) => {
         if (cancelled || !rendererRef.current) {
           closeBitmap(bmp);
@@ -618,6 +646,20 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     velRef.current = { yaw: dYaw * 12, pitch: dPitch * 12 };
   };
 
+  // Отмена жеста (браузер перехватил касание): просто сбрасываем, без «тапа».
+  const pointerCancel = (e: React.PointerEvent) => {
+    if (blurDragRef.current?.pointerId === e.pointerId) blurDragRef.current = null;
+    if (freeDrawRef.current?.pointerId === e.pointerId) {
+      freeDrawRef.current = null;
+      draftRef.current = [];
+      setDraftCount(0);
+    }
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size === 0) dragRef.current.active = false;
+    dragRef.current.pinch = pinchDistance();
+  };
+
   const pointerUp = (e: React.PointerEvent) => {
     if (blurDragRef.current?.pointerId === e.pointerId) {
       finishBlurDrag();
@@ -680,7 +722,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       if (hitId) {
         const def = linesRef.current.find((l) => l.id === hitId);
         // Повторное нажатие на ту же линию закрывает её окно.
-        if (def && lineHasDocs(def)) { if (noteHotspotRef.current?.id === `line:${hitId}`) setNoteHotspot(null); else openLineCard(hitId); }
+        if (def && (lineHasDocs(def) || !editRef.current)) { if (noteHotspotRef.current?.id === `line:${hitId}`) setNoteHotspot(null); else openLineCard(hitId); }
         else if (def) { setNoteHotspot(null); flash(def.name); } // документации нет — закрываем старую карточку и называем линию
         if (editRef.current) { setActiveLineId(hitId); setEditTab("lines"); }
         return;
@@ -998,7 +1040,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }
   function openLineCard(id: string) {
     const def = linesRef.current.find((l) => l.id === id);
-    if (def && lineHasDocs(def)) setNoteHotspot(lineToCard(def));
+    if (def) setNoteHotspot(lineToCard(def));
   }
   // Линия под точкой касания (только линии, у которых есть документация).
   function lineAt(clientX: number, clientY: number): string | null {
@@ -1292,7 +1334,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}
-      onPointerCancel={pointerUp}
+      onPointerCancel={pointerCancel}
     >
       <canvas ref={canvasRef} className="pano-canvas" />
       <canvas ref={linesCanvasRef} className="pano-lines" />
@@ -1302,7 +1344,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
           key={h.id}
           data-hud
           data-spot={h.id}
-          className={`pano-spot${selectedId === h.id ? " sel" : ""}${h.targetId ? "" : " note"}${h.targetId && !edit && (spotsHidden || h.hidden) ? " stealth" : ""}${h.targetId && edit && h.hidden ? " ghost" : ""}`}
+          className={`pano-spot${selectedId === h.id ? " sel" : ""}${h.targetId ? "" : " note"}${h.targetId && !edit && (spotsHidden || h.hidden) ? " stealth" : ""}${h.targetId && edit && h.hidden ? (editTab === "spots" ? " ghost" : " stealth") : ""}`}
           ref={(el) => {
             if (el) hotspotEls.current.set(h.id, el);
             else hotspotEls.current.delete(h.id);

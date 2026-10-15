@@ -159,6 +159,12 @@ let linesVisible = true;
 
 // Документация линии показывается тем же окном, что и заметка: собираем
 // «псевдо-заметку» из линии.
+// Карточка открывается у линии с документацией, а при включённых «Файлах клиента» —
+// у любой линии: в ней клиент прикрепляет свои файлы.
+function lineCardAvailable(l: LineDef): boolean {
+  return lineHasDocs(l) || !!manifest?.features?.clientFiles;
+}
+
 function lineToHotspot(l: LineDef): Hotspot {
   return { id: `line:${l.id}`, yaw: 0, pitch: 0, label: l.name, targetId: null, note: l.note, photoUrl: l.photoUrl, pdfs: l.pdfs };
 }
@@ -214,7 +220,7 @@ function renderLegend() {
     }
     chip.addEventListener("click", () => {
       focusLineId = focusLineId === l.id ? null : l.id;
-      if (focusLineId && lineHasDocs(l)) openNote(lineToHotspot(l));
+      if (focusLineId && lineCardAvailable(l)) openNote(lineToHotspot(l));
       else if (!focusLineId) closeNote();
       renderLegend();
     });
@@ -745,7 +751,13 @@ function onPointerUp(e: PointerEvent) {
   if (drag.moved < TAP_SLOP) handleTap(downTarget, e.clientX, e.clientY);
 }
 wrapEl.addEventListener("pointerup", onPointerUp);
-wrapEl.addEventListener("pointercancel", onPointerUp);
+// Отмена жеста (браузер перехватил касание) — сброс без «тапа» по тому, что было под пальцем.
+wrapEl.addEventListener("pointercancel", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.delete(e.pointerId);
+  if (pointers.size === 0) drag.active = false;
+  drag.pinch = pinchDistance();
+});
 
 function handleTap(target: HTMLElement | null, clientX: number, clientY: number) {
   const wr0 = wrapEl.getBoundingClientRect();
@@ -760,7 +772,7 @@ function handleTap(target: HTMLElement | null, clientX: number, clientY: number)
   if (!target?.closest("[data-hud]")) {
     const line = lineAt(clientX, clientY);
     if (line) {
-      if (lineHasDocs(line)) toggleNote(lineToHotspot(line));
+      if (lineCardAvailable(line)) toggleNote(lineToHotspot(line));
       else { closeNote(); flash(line.name); } // документации нет — закрываем старую карточку и называем линию
       return;
     }
@@ -781,6 +793,10 @@ window.addEventListener("keydown", (e) => {
   // Пока открыта 3D-модель, клавиши не должны крутить панораму под ней.
   if (modelEl) {
     if (e.key === "Escape") closeModel();
+    return;
+  }
+  if (e.key === "Escape" && noteEl) {
+    closeNote();
     return;
   }
   if (e.key.startsWith("Arrow")) {

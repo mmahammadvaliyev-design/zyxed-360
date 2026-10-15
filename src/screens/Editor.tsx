@@ -9,7 +9,7 @@ import { exportProjectBackup } from "../export/backup";
 import { renderQrToCanvas } from "../qr";
 import PanoViewer from "../components/PanoViewer";
 import FolderBar from "../components/FolderBar";
-import { ensureFolderAccess, saveExportToFolder } from "../folderSync";
+import { ensureFolderAccess, forgetLink, saveExportToFolder } from "../folderSync";
 import type { LineDef } from "../engine/types";
 import MapEditor from "../components/MapEditor";
 import { useEffect } from "react";
@@ -128,6 +128,7 @@ export default function Editor() {
         )
       ) {
         await deleteProject(projectId);
+        await forgetLink(projectId);
       }
     }
     nav("/");

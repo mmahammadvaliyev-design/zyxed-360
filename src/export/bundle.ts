@@ -88,7 +88,7 @@ export function slugify(s: string): string {
     s
       .toLowerCase()
       .trim()
-      .replace(/[^a-z0-9а-яё]+/gi, "-")
+      .replace(/[^\p{L}\p{N}\p{M}]+/gu, "-") // любые буквы (в т.ч. азербайджанские ə ı ş ç ğ ö ü), не только a-z и а-я
       .replace(/^-+|-+$/g, "")
       .slice(0, 60) || "tour"
   );

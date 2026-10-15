@@ -6,7 +6,7 @@
 import { mimeForName } from "../engine/files";
 import type { BlurZone, LineDef, NotePdf, Stroke } from "../engine/types";
 import { unzipSync, zipSync } from "fflate";
-import { createProject, db, uid, uniqueProjectTitle, type Hotspot, type Project } from "../db";
+import { createProject, db, deleteProject, uid, uniqueProjectTitle, type Hotspot, type Project } from "../db";
 import { slugify } from "./bundle";
 
 const BACKUP_VERSION = 1;
@@ -181,8 +181,24 @@ export async function importBackupFiles(files: Record<string, Uint8Array>, opts:
   if (manifest.version !== BACKUP_VERSION) throw new Error("Неподдерживаемая версия резервной копии.");
   if (!manifest.scenes?.length) throw new Error("В резервной копии нет панорам.");
 
+  // Все панорамы из описания должны быть на месте — иначе молча потеряли бы кадры
+  // и оставили переходы «в никуда». Миниатюра может отсутствовать (возьмём саму картинку).
+  const missing = manifest.scenes.filter((s) => !files[`images/${s.id}.jpg`]);
+  if (missing.length) {
+    throw new Error(`В копии не хватает картинок панорам: ${missing.length} из ${manifest.scenes.length} (папка images/ неполная или повреждена). Импорт отменён, чтобы ничего не потерять.`);
+  }
   const title = await uniqueProjectTitle(manifest.title || "Импортированный тур");
   const project = await createProject(title);
+  try {
+    await fillImportedProject(project, manifest, files, opts);
+  } catch (e) {
+    await deleteProject(project.id); // не оставляем полупустой проект
+    throw e;
+  }
+  return project;
+}
+
+async function fillImportedProject(project: Project, manifest: BackupManifest, files: Record<string, Uint8Array>, opts: { keepIds?: boolean }): Promise<void> {
   const keep = !!opts.keepIds && (await db.scenes.bulkGet(manifest.scenes.map((s) => s.id))).every((x) => !x);
   const idMap = new Map(manifest.scenes.map((s) => [s.id, keep ? s.id : uid()]));
 
@@ -210,8 +226,8 @@ export async function importBackupFiles(files: Record<string, Uint8Array>, opts:
 
   for (const s of manifest.scenes) {
     const imgBytes = files[`images/${s.id}.jpg`];
-    const thumbBytes = files[`thumbs/${s.id}.jpg`];
-    if (!imgBytes || !thumbBytes) continue;
+    const thumbBytes = files[`thumbs/${s.id}.jpg`] ?? imgBytes;
+    if (!imgBytes) continue;
     const hotspots: Hotspot[] = s.hotspots.map((h) => {
       const { photoRef, pdfRefs, ...rest } = h;
       const photoBytes = photoRef ? files[photoRef] : undefined;
@@ -248,5 +264,4 @@ export async function importBackupFiles(files: Record<string, Uint8Array>, opts:
       lineWidths: s.lineWidths,
     });
   }
-  return project;
 }

@@ -13,11 +13,12 @@ function FolderControls({ project, onBusy, onNote }: { project: Project; onBusy:
   const st = useFolderStatus(project.id);
   if (!FOLDER_SUPPORTED) return null;
   if (st.linked) {
-    const mark = st.state === "synced" ? "✓" : st.state === "syncing" ? "…" : st.state === "needs-permission" ? "⚠" : st.state === "error" ? "✕" : "";
+    const mark = st.state === "synced" ? "✓" : st.state === "syncing" ? "…" : st.state === "needs-permission" || st.state === "conflict" ? "⚠" : st.state === "error" ? "✕" : "";
     return (
       <div className="muted" style={{ marginTop: 6 }} title={st.error ?? undefined}>
         📁 {st.folderName} {mark}
         {st.state === "needs-permission" && <> · {t("нужно разрешение (откройте тур)", "permission needed (open the tour)")}</>}
+        {st.state === "conflict" && <> · {t("в папке чужие изменения (откройте тур)", "folder changed outside the app (open the tour)")}</>}
       </div>
     );
   }

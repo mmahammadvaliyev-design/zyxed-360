@@ -32,6 +32,10 @@ export interface FolderLink {
   handle: FileSystemDirectoryHandle;
   name: string;
   linkedAt: string;
+  // Время изменения backup.json в папке, каким его оставила ЭТА программа. Если при
+  // следующей синхронизации оно другое — папку правили снаружи (другой компьютер,
+  // восстановление из архива): тогда не перезаписываем её молча.
+  backupMtime?: number;
 }
 
 // Подписчики на изменения проекта (folderSync.ts ставит сюда пересборку копии
