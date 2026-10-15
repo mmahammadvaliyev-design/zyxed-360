@@ -34,6 +34,10 @@ export default function FolderBar({ projectId, title, onNote }: { projectId: str
       <div style={{ lineHeight: 1.45, minWidth: 0 }}>
         📁 <b>{st.folderName}</b>{" "}
         {st.state === "synced" && <span className="muted">· {t("сохранено", "saved")} {time} ✓</span>}
+        {st.state === "synced" && st.viewerBusy && <span className="muted"> · {t("обновляю index.html…", "updating index.html…")}</span>}
+        {st.state === "synced" && !st.viewerBusy && st.viewerAt && (
+          <span className="muted"> · {t("index.html для просмотра обновлён", "viewable index.html updated")} {new Date(st.viewerAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        )}
         {st.state === "syncing" && <span className="muted">· {t("сохраняю…", "saving…")}</span>}
         {st.state === "idle" && <span className="muted">· {t("ожидание", "waiting")}</span>}
         {st.state === "needs-permission" && <span className="muted">· {t("браузер просит подтвердить доступ к папке", "the browser needs you to confirm folder access")}</span>}

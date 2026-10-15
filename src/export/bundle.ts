@@ -138,7 +138,10 @@ async function exportLines(lines: LineDef[]): Promise<LineDef[]> {
   );
 }
 
-export async function exportProjectZip(projectId: string): Promise<{ blob: Blob; filename: string }> {
+// Готовый к открытию тур: index.html (весь тур внутри) + assets/ плеера.
+// Из этого собирается и ZIP для клиента, и «просмотровый» index.html прямо в
+// папке тура (см. folderSync.ts).
+export async function buildTourFiles(projectId: string): Promise<{ files: Record<string, Uint8Array>; title: string }> {
   const project = await db.projects.get(projectId);
   if (!project) throw new Error("Проект не найден");
   const scenes = await db.scenes.where("projectId").equals(projectId).sortBy("order");
@@ -195,9 +198,13 @@ export async function exportProjectZip(projectId: string): Promise<{ blob: Blob;
   const indexHtml = buildIndexHtml({ js, css, dataScript, lang: manifest.lang ?? "ru" });
 
   const files: Record<string, Uint8Array> = { "index.html": new TextEncoder().encode(indexHtml), ...assets };
+  return { files, title: project.title };
+}
 
+export async function exportProjectZip(projectId: string): Promise<{ blob: Blob; filename: string }> {
+  const { files, title } = await buildTourFiles(projectId);
   const zipped = zipSync(files, { level: 6 });
-  return { blob: new Blob([zipped], { type: "application/zip" }), filename: `${slugify(project.title)}.zip` };
+  return { blob: new Blob([zipped], { type: "application/zip" }), filename: `${slugify(title)}.zip` };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {

@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from "react";
 import { db, onProjectChanged } from "./db";
 import { collectBackupEntries } from "./export/backup";
+import { buildTourFiles } from "./export/bundle";
 import { collectDocumentEntries, DOCS_ROOT } from "./export/documents";
 
 type DirHandle = FileSystemDirectoryHandle;
@@ -30,8 +31,11 @@ export interface FolderStatus {
   state: SyncState;
   syncedAt: string | null;
   error: string | null;
+  // «Просмотровый» index.html в папке: когда обновлён и идёт ли сборка.
+  viewerAt: string | null;
+  viewerBusy: boolean;
 }
-const NOT_LINKED: FolderStatus = { linked: false, folderName: "", state: "idle", syncedAt: null, error: null };
+const NOT_LINKED: FolderStatus = { linked: false, folderName: "", state: "idle", syncedAt: null, error: null, viewerAt: null, viewerBusy: false };
 
 const statuses = new Map<string, FolderStatus>();
 const handles = new Map<string, DirHandle>();
@@ -200,6 +204,72 @@ async function writeTextIfChanged(dir: DirHandle, name: string, bytes: Uint8Arra
 // файлы пользователя НЕ трогаем.
 const MANAGED_DIRS = ["images", "thumbs", "hotspotPhotos", "hotspotFiles", "lineFiles"];
 
+// ── «Просмотровый» index.html в самой папке тура ──
+// Рядом с копией проекта лежит готовый тур (index.html + assets/): открыл папку,
+// дважды щёлкнул — смотришь актуальный тур без программы и без ручного
+// «Экспорта». Обновляется сам, но не на каждую правку, а когда авторы
+// «затихли» (сборка — это перекодирование всех панорам, она тяжелее копии).
+const VIEWER_DELAY_MS = 20_000;
+const viewerTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const viewerRunning = new Set<string>();
+const viewerAgain = new Set<string>();
+
+export function scheduleViewer(projectId: string, delayMs = VIEWER_DELAY_MS): void {
+  if (!handles.has(projectId)) return;
+  const prev = viewerTimers.get(projectId);
+  if (prev) clearTimeout(prev);
+  viewerTimers.set(
+    projectId,
+    setTimeout(() => {
+      viewerTimers.delete(projectId);
+      void runViewer(projectId);
+    }, delayMs),
+  );
+}
+
+async function runViewer(projectId: string): Promise<void> {
+  const dir = handles.get(projectId);
+  if (!dir) return;
+  if (viewerRunning.has(projectId)) {
+    viewerAgain.add(projectId);
+    return;
+  }
+  viewerRunning.add(projectId);
+  setStatus(projectId, { viewerBusy: true });
+  try {
+    if ((await queryPerm(dir)) !== "granted") return;
+    let built;
+    try {
+      built = await buildTourFiles(projectId);
+    } catch {
+      return; // например, в туре ещё нет панорам — просматривать нечего
+    }
+    for (const [path, bytes] of Object.entries(built.files)) {
+      const parts = path.split("/");
+      const name = parts.pop()!;
+      await writeTextIfChanged(await dirFor(dir, parts), name, bytes);
+    }
+    // старые версии файлов плеера (хэшированные имена) убираем из assets/
+    try {
+      const assets = await dir.getDirectoryHandle("assets");
+      const stale: string[] = [];
+      for await (const [name, h] of (assets as unknown as { entries: () => AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+        if (h.kind === "file" && !(`assets/${name}` in built.files)) stale.push(name);
+      }
+      for (const n of stale) await assets.removeEntry(n);
+    } catch {
+      /* папки assets ещё нет */
+    }
+    setStatus(projectId, { viewerAt: new Date().toISOString() });
+  } catch (e) {
+    console.warn("[folderSync] не удалось обновить index.html тура:", e);
+  } finally {
+    viewerRunning.delete(projectId);
+    setStatus(projectId, { viewerBusy: false });
+    if (viewerAgain.delete(projectId)) scheduleViewer(projectId, 2000);
+  }
+}
+
 async function prune(root: DirHandle, keep: Set<string>): Promise<void> {
   for (const dirName of MANAGED_DIRS) {
     let d: DirHandle;
@@ -293,11 +363,15 @@ hotspotFiles/, lineFiles/   — служебные копии фото и вло
                               по папкам с названием трубы (Документы/Линии/<труба>/…).
                               Берите чертёж прямо отсюда, не открывая тур
 map.jpg                     — план объекта (если есть)
+index.html, assets/         — ГОТОВЫЙ ТУР для просмотра: откройте index.html двойным щелчком
+                              (без программы и интернета). Обновляется сам через ~20 секунд
+                              после последней правки — всегда актуальная версия
 export/                     — готовые архивы для клиента (кнопка «Экспорт»)
 
 Это КОПИЯ: правки файлов вне программы обратно в тур не попадают.
-Чтобы восстановить тур: заархивируйте содержимое папки (без export/) в ZIP и
-импортируйте кнопкой «Импортировать копию» на главном экране.
+Чтобы восстановить тур: кнопка «Копия» в программе, либо заархивируйте в ZIP всё,
+кроме index.html, assets/, Документы/ и export/, и импортируйте кнопкой
+«Импортировать копию» на главном экране.
 `;
 
 // ── Синхронизация ─────────────────────────────────────────────────
@@ -343,6 +417,7 @@ async function runSync(projectId: string): Promise<void> {
     await prune(dir, keep);
     await syncDocuments(dir, projectId);
     setStatus(projectId, { state: "synced", syncedAt: new Date().toISOString(), error: null });
+    scheduleViewer(projectId);
   } catch (e) {
     setStatus(projectId, { state: "error", error: (e as Error).message || String(e) });
   } finally {
@@ -356,6 +431,11 @@ export async function syncNow(projectId: string): Promise<void> {
   if (t) clearTimeout(t);
   timers.delete(projectId);
   await runSync(projectId);
+  // ручная синхронизация («Повторить»/сразу после привязки) — и просмотр обновляем сразу
+  const vt = viewerTimers.get(projectId);
+  if (vt) clearTimeout(vt);
+  viewerTimers.delete(projectId);
+  await runViewer(projectId);
 }
 
 // ── Экспорт для клиента → в подпапку export/ ───────────────────────
