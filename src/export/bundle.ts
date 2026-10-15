@@ -24,6 +24,7 @@ import { getAppLanguage } from "../appLanguage";
 import { PLAYER_ASSETS, PLAYER_HTML } from "./playerAssets.generated";
 import { VIEWER3D_JS } from "./viewer3dAsset.generated";
 import { isViewable3d } from "../engine/files";
+import { bakeBlurs } from "../engine/blur";
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -148,7 +149,9 @@ export async function buildTourFiles(projectId: string): Promise<{ files: Record
   if (!scenes.length) throw new Error("В туре нет ни одной панорамы — экспортировать нечего.");
 
   const images: Record<string, string> = {};
-  for (const s of scenes) images[s.id] = await blobToDataUrl(s.image);
+  // Зоны «Блюр» вжигаются в картинку (независимо от переключателя функции — иначе
+  // скрытое при выключенной функции ушло бы клиенту открытым).
+  for (const s of scenes) images[s.id] = await blobToDataUrl(s.blurs?.length ? await bakeBlurs(s.image, s.blurs) : s.image);
 
   const manifest: TourManifest = {
     title: project.title,

@@ -126,6 +126,16 @@ export const FEATURES: FeatureFlag[] = [
       "In the published tour a pipe/note card gets a \"My files\" block: the viewer can attach THEIR OWN files (a drawing, a report, a photo) and download them back. Files are kept only in this device's browser — they are not sent to you and don't become part of the tour; your original files stay untouched. After re-exporting the same tour the client's files stay in place.",
     defaultOn: true,
   },
+  {
+    id: "blur",
+    label: "Блюр (размытие зон)",
+    labelEn: "Blur (hide areas)",
+    description:
+      "Во вкладке «Блюр» меню правки выделите на панораме зону (прямоугольник, овал или по точкам) и ползунком задайте силу размытия — для лиц, номеров, секретного оборудования, штатива в надире. В экспорт и в index.html в папке тура уходит уже размытая картинка: клиент не сможет достать оригинал. Оригинал остаётся у вас, зоны можно менять и удалять.",
+    descriptionEn:
+      "In the \"Blur\" tab of the edit menu, select an area on the panorama (rectangle, oval or by points) and set the blur strength with a slider — for faces, plates, confidential equipment, a tripod at the nadir. The export and the index.html in the tour folder get the already-blurred picture, so the client can't recover the original. You keep the original; zones can be edited and removed.",
+    defaultOn: true,
+  },
 ];
 
 const STORAGE_KEY = "zyxed360:features";

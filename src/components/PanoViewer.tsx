@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uid, type Hotspot, type Scene } from "../db";
-import type { LineDef, LinePoint, NotePdf, Stroke } from "../engine/types";
+import type { BlurZone, LineDef, LinePoint, NotePdf, Stroke } from "../engine/types";
+import { bakeBlursToBitmap, DEFAULT_BLUR_LEVEL, drawBlurZones, hitTestBlur, MAX_BLUR_LEVEL, MIN_BLUR_LEVEL, zoneFromScreenShape, type BlurDraft } from "../engine/blur";
 import { angularDistance, drawStrokes, hitTestStrokes, lineHasDocs, lineWidthDeg, MAX_LINE_WIDTH_DEG, MIN_LINE_WIDTH_DEG, nextLineColor, smoothAndSimplify } from "../engine/lines";
 import {
   basisFor,
@@ -16,7 +17,7 @@ import {
   type Basis,
   type View,
 } from "../engine/pano";
-import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto } from "../imageImport";
+import { bitmapSize, closeBitmap, loadBitmap, prepareHotspotPhoto, type Bitmap } from "../imageImport";
 import { ATTACHMENT_MAX_BYTES, checkAttachment, describeModelError, fileIcon, isFbx, isViewable3d, normalizeHref } from "../engine/files";
 import { loadViewer3d } from "../viewer3dLoader";
 import { anglesFromOrientation, GYRO_SUPPORTED, requestGyroPermission } from "../engine/gyro";
@@ -42,6 +43,11 @@ const ROTATE_SPEED = rad(9);
 const FRICTION = 6;
 const TAP_SLOP = 8;
 
+// Ширина картинки в редакторе, когда у панорамы есть зоны «Блюр» (быстрее
+// пересчёт при правках; в экспорт уходит полное разрешение).
+const BLUR_PREVIEW_WIDTH = 5000;
+const blurSigOf = (zones: BlurZone[] | undefined): string => (zones?.length ? JSON.stringify(zones) : "");
+
 export default function PanoViewer({ scenes, startId, editable, onClose, onChange, mapImage, lines = NO_LINES, onLinesChange }: Props) {
   const t = useT();
   const [currentId, setCurrentId] = useState(startId);
@@ -55,7 +61,19 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   // реф (его читает рендер-цикл каждый кадр), draftCount — только для кнопок.
   const linesEnabled = useFeature("lines");
   // Меню правки разделено на две вкладки: «Переходы и заметки» и «Трубы (линии)».
-  const [editTab, setEditTab] = useState<"spots" | "lines">("spots");
+  const [editTab, setEditTab] = useState<"spots" | "lines" | "blur">("spots");
+  // Функция «Блюр»: режим выделения зоны, выбранная зона, уровень (черновик на
+  // время перетаскивания ползунка), идёт ли перерисовка картинки.
+  const blurEnabled = useFeature("blur");
+  const [blurMode, setBlurMode] = useState<null | "rect" | "ellipse" | "points">(null);
+  const [selectedBlurId, setSelectedBlurId] = useState<string | null>(null);
+  const [blurLevelDraft, setBlurLevelDraft] = useState<{ id: string; level: number } | null>(null);
+  const [blurPtsCount, setBlurPtsCount] = useState(0);
+  const [blurBusy, setBlurBusy] = useState(false);
+  const blurDragRef = useRef<{ pointerId: number; kind: "rect" | "ellipse"; x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const blurPtsRef = useRef<LinePoint[]>([]);
+  const blurDraggingRef = useRef(false);
+  const loadedBlurSigRef = useRef("");
   // Быстрое скрытие маркеров переходов в просмотре (кликабельность остаётся).
   const [spotsHidden, setSpotsHidden] = useState(false);
   const [lineMode, setLineMode] = useState<null | "points" | "free">(null);
@@ -158,6 +176,14 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   linesVisibleRef.current = linesVisible;
   const editRef = useRef(edit);
   editRef.current = edit;
+  const editTabRef = useRef(editTab);
+  editTabRef.current = editTab;
+  const blurModeRef = useRef(blurMode);
+  blurModeRef.current = blurMode;
+  const selectedBlurIdRef = useRef(selectedBlurId);
+  selectedBlurIdRef.current = selectedBlurId;
+  const blurLevelDraftRef = useRef(blurLevelDraft);
+  blurLevelDraftRef.current = blurLevelDraft;
   const updateHotspotRef = useRef<(id: string, patch: Partial<Hotspot>) => void>(() => {});
   const updateLineRef = useRef<(id: string, patch: Partial<LineDef>) => void>(() => {});
   const noteHotspotRef = useRef(noteHotspot);
@@ -177,6 +203,7 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     if (model3dRef.current) { setModel3d(null); return true; }
     if (mapOpenRef.current) { setMapOpen(false); return true; }
     if (noteHotspotRef.current) { setNoteHotspot(null); return true; }
+    if (blurModeRef.current) { exitBlurMode(); return true; }
     if (lineModeRef.current) { exitLineMode(); return true; }
     if (placingRef.current) { setPlacing(null); return true; }
     if (selectedIdRef.current) { setSelectedId(null); return true; }
@@ -318,6 +345,17 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
+      // Функция «Блюр»: контуры зон — только во вкладке «Блюр» редактора.
+      if (editRef.current && editTabRef.current === "blur") {
+        const sc = scenesRef.current.find((x) => x.id === currentIdRef.current);
+        const drag = blurDragRef.current;
+        const draft: BlurDraft | null = drag
+          ? { kind: drag.kind, x0: drag.x0, y0: drag.y0, x1: drag.x1, y1: drag.y1 }
+          : blurModeRef.current === "points" && blurPtsRef.current.length
+            ? { kind: "points", points: blurPtsRef.current }
+            : null;
+        drawBlurZones(ctx, width, height, basis, sc?.blurs ?? [], selectedBlurIdRef.current, draft);
+      }
       if (!linesEnabledRef.current) return;
       // Скрытый режим (кнопка 〰): рисунок линий не показываем, кроме линии,
       // выбранной в легенде, — иначе подсветка из легенды ничего бы не давала.
@@ -401,24 +439,15 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     velRef.current = { yaw: 0, pitch: 0 };
     gyroRef.current.init = false;
 
-    loadBitmap(target.image)
+    loadedBlurSigRef.current = `${target.id}|${blurSigOf(target.blurs)}`;
+    setBlurBusy(false);
+    (target.blurs?.length ? bakeBlursToBitmap(target.image, target.blurs, BLUR_PREVIEW_WIDTH) : loadBitmap(target.image))
       .then((bmp) => {
         if (cancelled || !rendererRef.current) {
           closeBitmap(bmp);
           return;
         }
-        const { width, height } = bitmapSize(bmp);
-        const max = rendererRef.current.maxTextureSize;
-        if (width > max) {
-          const c = document.createElement("canvas");
-          c.width = max;
-          c.height = Math.max(1, Math.round((max * height) / width));
-          c.getContext("2d")!.drawImage(bmp as CanvasImageSource, 0, 0, c.width, c.height);
-          rendererRef.current.setImage(c, c.width, c.height);
-        } else {
-          rendererRef.current.setImage(bmp, width, height);
-        }
-        closeBitmap(bmp);
+        uploadBitmap(bmp);
         setError(null);
         setLoading(false);
       })
@@ -431,8 +460,80 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     return () => { cancelled = true; };
   }, [currentId]);
 
+  // Выгрузка битмапа в WebGL с учётом лимита размера текстуры.
+  function uploadBitmap(bmp: Bitmap) {
+    const renderer = rendererRef.current;
+    if (!renderer) {
+      closeBitmap(bmp);
+      return;
+    }
+    const { width, height } = bitmapSize(bmp);
+    const max = renderer.maxTextureSize;
+    if (width > max) {
+      const c = document.createElement("canvas");
+      c.width = max;
+      c.height = Math.max(1, Math.round((max * height) / width));
+      c.getContext("2d")!.drawImage(bmp as CanvasImageSource, 0, 0, c.width, c.height);
+      renderer.setImage(c, c.width, c.height);
+    } else {
+      renderer.setImage(bmp, width, height);
+    }
+    closeBitmap(bmp);
+  }
+
+  // Функция «Блюр»: добавили/сдвинули/удалили зону или тянут ползунок — картинку
+  // перерисовываем уже размытой (вид не сбрасывается). Пока тянут ползунок —
+  // используем черновик уровня, в базу он попадает при отпускании.
+  const bakeZones = scene?.blurs?.map((z) => (blurLevelDraft && blurLevelDraft.id === z.id ? { ...z, level: blurLevelDraft.level } : z));
+  const bakeSig = scene ? `${scene.id}|${blurSigOf(bakeZones)}` : "";
+  useEffect(() => {
+    if (!scene || loadedBlurSigRef.current === bakeSig) return;
+    const sceneId = scene.id;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const target = scenesRef.current.find((x) => x.id === sceneId);
+      if (!target) return;
+      setBlurBusy(true);
+      (bakeZones?.length ? bakeBlursToBitmap(target.image, bakeZones, BLUR_PREVIEW_WIDTH) : loadBitmap(target.image))
+        .then((bmp) => {
+          if (cancelled || currentIdRef.current !== sceneId) {
+            closeBitmap(bmp);
+            return;
+          }
+          uploadBitmap(bmp);
+          loadedBlurSigRef.current = bakeSig;
+        })
+        .catch(() => { /* оставляем прежнюю картинку */ })
+        .finally(() => { if (!cancelled) setBlurBusy(false); });
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [bakeSig]);
+
+  // Черновик уровня держим, пока сохранённое значение его не «догонит» — иначе
+  // между отпусканием ползунка и обновлением базы картинка мигала бы старым уровнем.
+  useEffect(() => {
+    if (!blurLevelDraft || blurDraggingRef.current) return;
+    const z = scene?.blurs?.find((x) => x.id === blurLevelDraft.id);
+    if (!z || z.level === blurLevelDraft.level) setBlurLevelDraft(null);
+  }, [scene?.blurs, blurLevelDraft]);
+
+  useEffect(() => {
+    if (wrapRef.current) wrapRef.current.style.cursor = blurMode === "rect" || blurMode === "ellipse" ? "crosshair" : "";
+  }, [blurMode]);
+
   // ── Ввод: свайп, щипок, колесо, клавиши ─────────────────────────
   const pointerDown = (e: React.PointerEvent) => {
+    // Блюр: прямоугольник/овал — тянем по панораме, она не вращается.
+    if ((blurModeRef.current === "rect" || blurModeRef.current === "ellipse") && pointers.current.size === 0 && !(e.target as HTMLElement).closest("[data-hud]")) {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) {
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        blurDragRef.current = { pointerId: e.pointerId, kind: blurModeRef.current, x0: x, y0: y, x1: x, y1: y };
+        try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* указатель уже неактивен */ }
+      }
+      return;
+    }
     // Режим «от руки»: палец/мышь рисуют штрих, а не вращают панораму
     // (кнопки и точки — data-hud — работают как обычно).
     if (lineModeRef.current === "free" && pointers.current.size === 0 && !(e.target as HTMLElement).closest("[data-hud]")) {
@@ -459,8 +560,17 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   }
 
   const pointerMove = (e: React.PointerEvent) => {
+    const bd = blurDragRef.current;
+    if (bd && bd.pointerId === e.pointerId) {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) {
+        bd.x1 = e.clientX - rect.left;
+        bd.y1 = e.clientY - rect.top;
+      }
+      return;
+    }
     // Над кликабельной линией (с документацией) мышь показывает «руку».
-    if (e.pointerType === "mouse" && e.buttons === 0 && wrapRef.current) {
+    if (e.pointerType === "mouse" && e.buttons === 0 && wrapRef.current && !blurModeRef.current) {
       wrapRef.current.style.cursor = !lineModeRef.current && lineAt(e.clientX, e.clientY) ? "pointer" : "";
     }
     if (freeDrawRef.current?.pointerId === e.pointerId) {
@@ -509,6 +619,10 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   };
 
   const pointerUp = (e: React.PointerEvent) => {
+    if (blurDragRef.current?.pointerId === e.pointerId) {
+      finishBlurDrag();
+      return;
+    }
     if (freeDrawRef.current?.pointerId === e.pointerId) {
       freeDrawRef.current = null;
       const stroke = smoothAndSimplify(draftRef.current);
@@ -528,6 +642,23 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   function handleTap(clientX: number, clientY: number, target: HTMLElement | null) {
     const wrapRect = wrapRef.current?.getBoundingClientRect();
     if (wrapRect) setNoteSide(clientX < wrapRect.left + wrapRect.width / 2 ? "right" : "left");
+    // Блюр: тап — вершина зоны («по точкам») или выбор зоны под пальцем.
+    if (editRef.current && editTabRef.current === "blur" && !target?.closest("[data-hud]")) {
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      if (blurModeRef.current === "points") {
+        const p = anglesAt(clientX, clientY);
+        if (p) {
+          blurPtsRef.current = [...blurPtsRef.current, p];
+          setBlurPtsCount(blurPtsRef.current.length);
+        }
+      } else if (!blurModeRef.current) {
+        const basis = basisFor(viewRef.current, rect.width, rect.height);
+        const sc = scenesRef.current.find((x) => x.id === currentIdRef.current);
+        setSelectedBlurId(hitTestBlur(sc?.blurs ?? [], basis, rect.width, rect.height, clientX - rect.left, clientY - rect.top));
+      }
+      return;
+    }
     // Режим «по точкам»: каждый тап по панораме — новая вершина ломаной.
     if (lineModeRef.current === "points" && !target?.closest("[data-hud]")) {
       const p = anglesAt(clientX, clientY);
@@ -741,9 +872,11 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     const basis = basisFor(viewRef.current, rect.width, rect.height);
     return unproject(clientX - rect.left, clientY - rect.top, basis, rect.width, rect.height);
   }
-  function switchEditTab(tab: "spots" | "lines") {
+  function switchEditTab(tab: "spots" | "lines" | "blur") {
     if (tab === editTab) return;
     exitLineMode();
+    exitBlurMode();
+    setSelectedBlurId(null);
     setSelectedId(null);
     setPlacing(null);
     setEditTab(tab);
@@ -754,6 +887,62 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
     setDraftCount(0);
     setLineMode(null);
   }
+  // ── Функция «Блюр» ──
+  function exitBlurMode() {
+    blurDragRef.current = null;
+    blurPtsRef.current = [];
+    setBlurPtsCount(0);
+    setBlurMode(null);
+  }
+  function startBlurMode(mode: "rect" | "ellipse" | "points") {
+    if (blurMode === mode) { exitBlurMode(); return; }
+    blurDragRef.current = null;
+    blurPtsRef.current = [];
+    setBlurPtsCount(0);
+    setSelectedBlurId(null);
+    setBlurMode(mode);
+  }
+  function addBlurZone(points: LinePoint[]) {
+    if (!scene || !onChange || points.length < 3) return;
+    const zone: BlurZone = { id: uid(), points, level: DEFAULT_BLUR_LEVEL };
+    onChange({ ...scene, blurs: [...(scene.blurs ?? []), zone] });
+    setSelectedBlurId(zone.id);
+  }
+  function finishBlurDrag() {
+    const d = blurDragRef.current;
+    blurDragRef.current = null;
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!d || !rect || Math.abs(d.x1 - d.x0) < 12 || Math.abs(d.y1 - d.y0) < 12) return; // слишком мелко — случайный тап
+    const basis = basisFor(viewRef.current, rect.width, rect.height);
+    addBlurZone(zoneFromScreenShape(d.kind, d.x0, d.y0, d.x1, d.y1, basis, rect.width, rect.height));
+    exitBlurMode();
+  }
+  function finishBlurPoints() {
+    addBlurZone(blurPtsRef.current);
+    exitBlurMode();
+  }
+  function undoBlurPoint() {
+    blurPtsRef.current = blurPtsRef.current.slice(0, -1);
+    setBlurPtsCount(blurPtsRef.current.length);
+  }
+  function setBlurLevel(id: string, level: number) {
+    if (!scene || !onChange) return;
+    onChange({ ...scene, blurs: (scene.blurs ?? []).map((z) => (z.id === id ? { ...z, level } : z)) });
+  }
+  function commitBlurDraft() {
+    if (!blurDraggingRef.current) return;
+    blurDraggingRef.current = false;
+    setAdjustingWidth(false);
+    const d = blurLevelDraftRef.current;
+    if (d) setBlurLevel(d.id, d.level);
+  }
+  function deleteBlurZone(id: string) {
+    if (!scene || !onChange) return;
+    const rest = (scene.blurs ?? []).filter((z) => z.id !== id);
+    onChange({ ...scene, blurs: rest.length ? rest : undefined });
+    setSelectedBlurId(null);
+  }
+
   function commitStroke(points: LinePoint[], smooth = false) {
     const lineId = activeLineIdRef.current;
     if (!scene || !onChange || !lineId || points.length < 2) return;
@@ -1090,6 +1279,8 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
   const selected = scene?.hotspots.find((h) => h.id === selectedId) ?? null;
   const activeLine = lines.find((l) => l.id === activeLineId) ?? null;
   const showLinesTab = editTab === "lines" && linesEnabled && !!onLinesChange;
+  const showBlurTab = editTab === "blur" && blurEnabled;
+  const selectedBlur = scene?.blurs?.find((z) => z.id === selectedBlurId) ?? null;
   const sceneLineIds = lines.filter((l) => scene?.strokes?.some((st) => st.lineId === l.id)).map((l) => l.id);
 
   if (!scene) return null;
@@ -1198,13 +1389,80 @@ export default function PanoViewer({ scenes, startId, editable, onClose, onChang
             <span>✏️ {t("Меню правки", "Edit menu")}</span>
             <button className="pano-btn" onClick={() => setEditCollapsed(!editCollapsed)} title={editCollapsed ? t("Развернуть меню", "Expand menu") : t("Свернуть меню", "Collapse menu")}>{editCollapsed ? "▴" : "▾"}</button>
           </div>
-          {linesEnabled && !!onLinesChange && (
+          {((linesEnabled && !!onLinesChange) || blurEnabled) && (
             <div className="pano-edit-tabs">
               <button className={`pano-btn${editTab === "spots" ? " on" : ""}`} onClick={() => switchEditTab("spots")}>◎ {t("Переходы и заметки", "Transitions & notes")}</button>
-              <button className={`pano-btn${editTab === "lines" ? " on" : ""}`} onClick={() => switchEditTab("lines")}>〰 {t("Трубы (линии)", "Pipes (lines)")}</button>
+              {linesEnabled && !!onLinesChange && <button className={`pano-btn${editTab === "lines" ? " on" : ""}`} onClick={() => switchEditTab("lines")}>〰 {t("Трубы (линии)", "Pipes (lines)")}</button>}
+              {blurEnabled && <button className={`pano-btn${editTab === "blur" ? " on" : ""}`} onClick={() => switchEditTab("blur")}>▦ {t("Блюр", "Blur")}</button>}
             </div>
           )}
-          {showLinesTab ? (
+          {showBlurTab ? (
+            <>
+              <div className="pano-hint-line">
+                {blurMode === "points"
+                  ? t("Нажимайте точки по контуру зоны (минимум 3), затем «Готово».", "Tap points around the area (at least 3), then press “Done”.")
+                  : blurMode
+                    ? t("Проведите по панораме — зона выделится.", "Drag over the panorama to select the area.")
+                    : t("Выберите форму и выделите на панораме зону, которую нужно размыть.", "Pick a shape and select the area to blur on the panorama.")}
+              </div>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                <button className={`pano-btn wide${blurMode === "rect" ? " on" : ""}`} onClick={() => startBlurMode("rect")}>▭ {t("Прямоугольник", "Rectangle")}</button>
+                <button className={`pano-btn wide${blurMode === "ellipse" ? " on" : ""}`} onClick={() => startBlurMode("ellipse")}>⬭ {t("Овал", "Oval")}</button>
+                <button className={`pano-btn wide${blurMode === "points" ? " on" : ""}`} onClick={() => startBlurMode("points")}>⬠ {t("По точкам", "By points")}</button>
+              </div>
+              {blurMode === "points" && (
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="pano-btn wide" disabled={blurPtsCount < 3} onClick={finishBlurPoints}>✓ {t("Готово", "Done")}</button>
+                  <button className="pano-btn" disabled={!blurPtsCount} onClick={undoBlurPoint} title={t("Убрать последнюю точку", "Remove the last point")}>↶</button>
+                  <button className="pano-btn" onClick={exitBlurMode} title={t("Отмена", "Cancel")}>✕</button>
+                </div>
+              )}
+              {!!scene?.blurs?.length && (
+                <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                  {scene.blurs.map((z, i) => (
+                    <button key={z.id} className={`pano-btn${selectedBlurId === z.id ? " on" : ""}`} onClick={() => { exitBlurMode(); setSelectedBlurId(selectedBlurId === z.id ? null : z.id); }}>
+                      {t("Зона", "Zone")} {i + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedBlur && (
+                <>
+                  <label className="pano-width-row">
+                    <span>
+                      {t("Сила размытия", "Blur strength")}: <b>{blurLevelDraft?.id === selectedBlur.id ? blurLevelDraft.level : selectedBlur.level}</b>
+                      {blurBusy && <span className="pano-width-default"> · {t("считаю…", "working…")}</span>}
+                    </span>
+                    <input
+                      type="range"
+                      className="pano-range"
+                      min={MIN_BLUR_LEVEL}
+                      max={MAX_BLUR_LEVEL}
+                      step={1}
+                      value={blurLevelDraft?.id === selectedBlur.id ? blurLevelDraft.level : selectedBlur.level}
+                      onPointerDown={() => { blurDraggingRef.current = true; setAdjustingWidth(true); }}
+                      onPointerUp={commitBlurDraft}
+                      onPointerCancel={commitBlurDraft}
+                      onBlur={commitBlurDraft}
+                      onKeyUp={() => { blurDraggingRef.current = true; commitBlurDraft(); }}
+                      onChange={(e) => {
+                        const level = Number(e.target.value);
+                        if (blurDraggingRef.current) setBlurLevelDraft({ id: selectedBlur.id, level });
+                        else { blurDraggingRef.current = true; setBlurLevelDraft({ id: selectedBlur.id, level }); setTimeout(commitBlurDraft, 0); } // клавиатура/колесо без перетаскивания
+                      }}
+                    />
+                  </label>
+                  <button className="pano-btn wide" onClick={() => deleteBlurZone(selectedBlur.id)}>🗑 {t("Удалить зону", "Delete zone")}</button>
+                </>
+              )}
+              <div className="pano-hint-line" style={{ opacity: 0.7 }}>
+                {t(
+                  "В экспорт и в index.html в папке тура уходит уже размытая картинка — оригинал остаётся только у вас.",
+                  "The export and the index.html in the tour folder get the already-blurred picture — the original stays with you only.",
+                )}
+              </div>
+            </>
+          ) : showLinesTab ? (
             <>
               {linesEnabled && (
                 <>

@@ -61,6 +61,14 @@ export interface LinePoint {
   yaw: number; // радианы
   pitch: number;
 }
+// Функция «Блюр»: зона панорамы, которую нужно размыть. Многоугольник в углах
+// обзора (как линии/заметки), level — сила размытия 1–100. В экспорт уходит уже
+// размытая картинка (engine/blur.ts), оригинал остаётся только у автора.
+export interface BlurZone {
+  id: string;
+  points: LinePoint[];
+  level: number;
+}
 export interface Stroke {
   id: string;
   lineId: string;
@@ -74,6 +82,8 @@ export interface SceneMeta {
   title: string;
   // Функция «Линии»: штрихи линий на этой панораме.
   strokes?: Stroke[];
+  // Функция «Блюр»: зоны размытия на этой панораме (НЕ попадают в манифест тура).
+  blurs?: BlurZone[];
   // Толщина линий именно НА ЭТОЙ панораме (градусы обзора): одна и та же труба
   // на разных сканах — на разном расстоянии. Нет значения — берётся общая
   // толщина линии (LineDef.width) или 2.5° по умолчанию.

@@ -4,7 +4,7 @@
 // продолжить работу над туром на другом устройстве или в другом браузере,
 // а не только посмотреть уже опубликованный результат.
 import { mimeForName } from "../engine/files";
-import type { LineDef, NotePdf, Stroke } from "../engine/types";
+import type { BlurZone, LineDef, NotePdf, Stroke } from "../engine/types";
 import { unzipSync, zipSync } from "fflate";
 import { createProject, db, uid, uniqueProjectTitle, type Hotspot, type Project } from "../db";
 import { slugify } from "./bundle";
@@ -32,6 +32,7 @@ interface BackupScene {
   hotspots: BackupHotspot[];
   mapX?: number;
   strokes?: Stroke[];
+  blurs?: BlurZone[]; // функция «Блюр»
   lineWidths?: Record<string, number>;
   mapY?: number;
 }
@@ -101,6 +102,7 @@ export async function collectBackupEntries(
       mapX: s.mapX,
       mapY: s.mapY,
       strokes: s.strokes?.length ? s.strokes : undefined,
+      blurs: s.blurs?.length ? s.blurs : undefined,
       lineWidths: s.lineWidths && Object.keys(s.lineWidths).length ? s.lineWidths : undefined,
     });
   }
@@ -242,6 +244,7 @@ export async function importBackupFiles(files: Record<string, Uint8Array>, opts:
       mapX: s.mapX,
       mapY: s.mapY,
       strokes: s.strokes?.length ? s.strokes.map((st) => ({ ...st, id: keep ? st.id : uid() })) : undefined,
+      blurs: s.blurs?.length ? s.blurs.map((z) => ({ ...z, id: keep ? z.id : uid() })) : undefined,
       lineWidths: s.lineWidths,
     });
   }
